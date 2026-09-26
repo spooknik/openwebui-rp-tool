@@ -111,21 +111,27 @@ def _store_embedding(media_id: int) -> None:
         c.execute("UPDATE media SET status='ready', error=NULL WHERE id=?", (media_id,))
 
 
-def _tag(media_id: int) -> None:
-    c = db.conn()
-    m = c.execute(
+def run_tagger(media_id: int, system_prompt: str | None = None) -> dict | None:
+    """Run the vision tagger on one item without saving anything (also used for prompt previews)."""
+    m = db.conn().execute(
         "SELECT m.*, l.character_notes FROM media m JOIN libraries l ON l.id=m.library_id WHERE m.id=?", (media_id,)
     ).fetchone()
     if not m:
-        return
-    c.execute("UPDATE media SET status='tagging' WHERE id=?", (media_id,))
+        return None
     if m["kind"] == "video":
         paths = [ingest.derived_path(p) for p in json.loads(m["frames"] or "[]")]
         if not paths:
             raise ValueError("video has no keyframes; re-run prepare")
     else:
         paths = [ingest.source_path(m)]
-    result = ollama.tag_images(paths, m["kind"], m["character_notes"])
+    return ollama.tag_images(paths, m["kind"], m["character_notes"], system_prompt=system_prompt)
+
+
+def _tag(media_id: int) -> None:
+    db.conn().execute("UPDATE media SET status='tagging' WHERE id=?", (media_id,))
+    result = run_tagger(media_id)
+    if result is None:
+        return
     with db.tx() as c:
         c.execute(
             "UPDATE media SET caption=?, rating=?, error=NULL, tagged_at=datetime('now') WHERE id=?",

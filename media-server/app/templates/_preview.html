@@ -1,0 +1,23 @@
+<div class="row" style="align-items: flex-start; gap: 16px">
+  <a href="/media/{{ m.id }}"><img src="{{ media_url(m.id, 'thumb') }}" style="width: 140px; border-radius: 8px" alt=""></a>
+  <div style="flex: 1; min-width: 260px">
+    <div class="compare">
+      <div>
+        <h2>Preview (this prompt)</h2>
+        <p><span class="pill">{{ result.rating }}</span> {{ result.caption }}</p>
+        {% for cat in TAG_CATEGORIES %}{% if result.tags.get(cat) %}
+        <div class="small"><span class="muted">{{ cat.replace('_', ' ') }}:</span> {{ ', '.join(result.tags[cat]) }}</div>
+        {% endif %}{% endfor %}
+      </div>
+      <div>
+        <h2>Current (saved on item #{{ m.id }})</h2>
+        {% if m.caption %}
+        <p>{% if m.rating %}<span class="pill">{{ m.rating }}</span> {% endif %}{{ m.caption }}</p>
+        {% for cat in TAG_CATEGORIES %}{% if current_tags.get(cat) %}
+        <div class="small"><span class="muted">{{ cat.replace('_', ' ') }}:</span> {{ ', '.join(current_tags[cat]) }}</div>
+        {% endif %}{% endfor %}
+        {% else %}<p class="muted">Not tagged yet.</p>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

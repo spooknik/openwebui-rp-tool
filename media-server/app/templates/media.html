@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}#{{ m.id }} · {{ lib.name }}{% endblock %}
 {% block content %}
-<p><a href="/libraries/{{ lib.id }}">← {{ lib.name }}</a></p>
+<div class="row" style="justify-content: space-between; margin-bottom: 12px">
+  <a href="/libraries/{{ lib.id }}">← {{ lib.name }}</a>
+  <h1 style="margin:0">#{{ m.id }}</h1>
+</div>
 <div class="media-layout">
   <div class="panel preview">
     {% if m.kind == 'video' %}
@@ -14,11 +17,25 @@
       {{ m.source }}: <code>{{ m.rel_path }}</code>{% if m.play_path %} · transcoded for playback{% endif %}<br>
       sent {{ sends.n }} time(s){% if sends.last %}, last {{ sends.last }} UTC{% endif %}
     </p>
+    {% if frames %}
+    <h2 style="margin-top:16px">Frames the tagger saw</h2>
+    <p class="hint">{{ frames|length }} frames sampled evenly across the clip and sent together to the vision model as one clip
+      (<code>KEYFRAMES</code> setting). The first frame is also the poster/thumbnail.</p>
+    <div class="frames">
+      {% for f in frames %}
+      <figure><a href="/media/{{ m.id }}/frame/{{ loop.index0 }}" target="_blank"><img src="/media/{{ m.id }}/frame/{{ loop.index0 }}" alt="" loading="lazy"></a>
+        <figcaption>{% if m.duration %}{{ '%.1f' % (m.duration * (loop.index0 + 0.5) / frames|length) }}s{% endif %}</figcaption></figure>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   <div class="panel">
     <div class="row" style="justify-content:space-between">
       <span><span class="pill {{ m.status }}">{{ m.status }}</span>{% if m.tags_locked %} <span class="pill" title="Manually edited; bulk re-tag skips this item">edited</span>{% endif %}</span>
-      <form method="post" action="/media/{{ m.id }}/retag"><button class="secondary" title="Run the vision tagger again (overwrites manual edits)">Re-tag</button></form>
+      <span class="row">
+        <a class="btn secondary" href="/settings?media_id={{ m.id }}" title="Try a different tagging prompt on this item without saving">Try prompt…</a>
+        <form method="post" action="/media/{{ m.id }}/retag"><button class="secondary" title="Run the vision tagger again (overwrites manual edits)">Re-tag</button></form>
+      </span>
     </div>
     {% if m.error %}<p class="err small">{{ m.error }}</p>{% endif %}
     {% if job and job.status in ('queued', 'running') %}<p class="small muted">Job: {{ job.kind }} ({{ job.status }})</p>{% endif %}

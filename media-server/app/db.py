@@ -91,6 +91,10 @@ def set_setting(key: str, value: str) -> None:
     )
 
 
+def delete_setting(key: str) -> None:
+    conn().execute("DELETE FROM settings WHERE key=?", (key,))
+
+
 # --- vectors --------------------------------------------------------------
 
 

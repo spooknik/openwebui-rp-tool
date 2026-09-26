@@ -1,4 +1,4 @@
-<div class="card{% if not m.enabled %} disabled{% endif %}" id="card-{{ m.id }}">
+<div class="card{% if not m.enabled %} disabled{% endif %}" id="card-{{ m.id }}" data-id="{{ m.id }}" data-state="{{ card_state(m) }}">
   <a href="/media/{{ m.id }}">
     {% if m.thumb_path %}<img loading="lazy" src="{{ media_url(m.id, 'thumb') }}" alt="">{% else %}<div class="noimg">{{ m.status }}…</div>{% endif %}
   </a>

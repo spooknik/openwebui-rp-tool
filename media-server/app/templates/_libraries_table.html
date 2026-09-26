@@ -1,0 +1,16 @@
+{% if libs %}
+<table>
+  <tr><th>Library</th><th>Linked models</th><th>Ready</th><th>Pending</th><th>Errors</th><th>Rating cap</th></tr>
+  {% for l in libs %}
+  <tr>
+    <td><a href="/libraries/{{ l.id }}"><b>{{ l.name }}</b></a><div class="muted small">{{ l.slug }}</div></td>
+    <td>{% for m in model_ids(l) %}<code class="tag">{{ m }}</code> {% else %}<span class="err small">none: the tool can't find this library</span>{% endfor %}</td>
+    <td>{{ l.ready or 0 }}</td><td>{{ l.pending or 0 }}</td>
+    <td>{% if l.errors %}<span class="err">{{ l.errors }}</span>{% else %}0{% endif %}</td>
+    <td>{{ l.rating_cap }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No libraries yet. <a href="/libraries/new">Create one</a> for each character.</p>
+{% endif %}

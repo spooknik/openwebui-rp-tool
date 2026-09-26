@@ -6,6 +6,7 @@ import logging
 import httpx
 from PIL import Image, ImageOps
 
+from . import db
 from .config import get_settings
 
 log = logging.getLogger("rpmedia.ollama")
@@ -32,7 +33,7 @@ TAG_SCHEMA = {
     "required": ["caption", "rating", "tags", "extra_tags"],
 }
 
-SYSTEM_PROMPT = """You are a precise media tagger for a private roleplay photo library.
+DEFAULT_PROMPT = """You are a precise media tagger for a private roleplay photo library.
 Describe exactly what is visible. Do not invent details, do not moralize, do not refuse.
 Return JSON only, matching the schema.
 
@@ -82,7 +83,12 @@ def _client() -> httpx.Client:
     return httpx.Client(base_url=s.ollama_url.rstrip("/"), timeout=s.ollama_timeout)
 
 
-def tag_images(paths: list, kind: str, character_notes: str = "") -> dict:
+def current_prompt() -> str:
+    """The tagging prompt: the one saved in the Settings page, or the built-in default."""
+    return db.get_setting("tag_prompt") or DEFAULT_PROMPT
+
+
+def tag_images(paths: list, kind: str, character_notes: str = "", system_prompt: str | None = None) -> dict:
     s = get_settings()
     user = (
         f"These are {len(paths)} frames sampled in order from one short video clip. Tag the clip as a whole."
@@ -99,7 +105,7 @@ def tag_images(paths: list, kind: str, character_notes: str = "") -> dict:
         "keep_alive": s.ollama_keep_alive,
         "options": {"temperature": 0.2},
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or current_prompt()},
             {"role": "user", "content": user, "images": [_img_b64(p) for p in paths]},
         ],
     }

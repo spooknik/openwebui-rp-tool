@@ -2,13 +2,15 @@
 
 import hashlib
 import hmac
+import html
 import json
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from .. import db, ingest, ollama, search, tagger
 from ..config import get_settings
@@ -18,6 +20,14 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
 templates.env.globals["media_url"] = media_url
 templates.env.globals["TAG_CATEGORIES"] = db.TAG_CATEGORIES
+
+
+def card_state(m) -> str:
+    """Changes whenever a grid card needs re-rendering (used by the live-update poller)."""
+    return f"{m['status']}|{1 if m['thumb_path'] else 0}|{m['enabled']}"
+
+
+templates.env.globals["card_state"] = card_state
 
 COOKIE = "rpm_session"
 PAGE_SIZE = 60
@@ -84,15 +94,23 @@ def logout():
 admin = APIRouter(dependencies=[Depends(require_admin)])
 
 
-@admin.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
-    libs = db.conn().execute(
+def _library_rows():
+    return db.conn().execute(
         """SELECT l.*,
              SUM(m.status='ready') AS ready, SUM(m.status IN ('pending','tagging')) AS pending,
              SUM(m.status='error') AS errors, COUNT(m.id) AS total
            FROM libraries l LEFT JOIN media m ON m.library_id=l.id GROUP BY l.id ORDER BY l.name"""
     ).fetchall()
-    return _render(request, "dashboard.html", libs=libs, model_ids=db.library_model_ids, settings=get_settings())
+
+
+@admin.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
+    return _render(request, "dashboard.html", libs=_library_rows(), model_ids=db.library_model_ids, settings=get_settings())
+
+
+@admin.get("/libraries-table", response_class=HTMLResponse)
+def libraries_table(request: Request):
+    return _render(request, "_libraries_table.html", libs=_library_rows(), model_ids=db.library_model_ids)
 
 
 @admin.get("/queue", response_class=HTMLResponse)
@@ -194,9 +212,9 @@ def library_delete(library_id: int):
     return RedirectResponse("/", status_code=303)
 
 
-def _grid_query(library_id: int, status: str, kind: str, q: str, offset: int):
-    sql = "SELECT m.* FROM media m WHERE m.library_id=?"
-    params: list = [library_id]
+def _grid_query(library_id: int, status: str, kind: str, q: str, offset: int, after_id: int = 0):
+    sql = "SELECT m.* FROM media m WHERE m.library_id=? AND m.id>?"
+    params: list = [library_id, after_id]
     if status:
         sql += " AND m.status=?" if status != "disabled" else " AND m.enabled=0"
         if status != "disabled":
@@ -221,10 +239,50 @@ def library_view(request: Request, library_id: int, status: str = "", kind: str 
     ctx = dict(lib=lib, items=items, more=more, next_offset=offset + PAGE_SIZE, status=status, kind=kind, q=q)
     if request.headers.get("HX-Request") and offset:
         return _render(request, "_grid.html", **ctx)
-    counts = {r["status"]: r["n"] for r in db.conn().execute(
-        "SELECT status, COUNT(*) n FROM media WHERE library_id=? GROUP BY status", (library_id,))}
-    return _render(request, "library.html", counts=counts, import_dirs=ingest.list_import_dirs(),
+    return _render(request, "library.html", counts=_counts(library_id), import_dirs=ingest.list_import_dirs(),
                    imp=ingest.import_status.get(library_id), model_ids=db.library_model_ids(lib), **ctx)
+
+
+def _counts(library_id: int) -> dict:
+    return {r["status"]: r["n"] for r in db.conn().execute(
+        "SELECT status, COUNT(*) n FROM media WHERE library_id=? GROUP BY status", (library_id,))}
+
+
+def _card_html(m) -> str:
+    return templates.get_template("_card.html").render(m=m, media_url=media_url, card_state=card_state)
+
+
+class UpdatesRequest(BaseModel):
+    after: int = 0
+    cards: dict[int, str] = {}  # id -> state the page currently shows
+    status: str = ""
+    kind: str = ""
+    q: str = ""
+
+
+@admin.post("/libraries/{library_id}/updates")
+def library_updates(library_id: int, req: UpdatesRequest):
+    """Live grid updates: new items since `after`, plus re-rendered cards whose state changed."""
+    _lib_or_404(library_id)
+    new_items, _ = _grid_query(library_id, req.status, req.kind, req.q, 0, after_id=req.after)
+    changed: dict[int, str | None] = {}
+    watched = dict(list(req.cards.items())[:2000])
+    if watched:
+        marks = ",".join("?" * len(watched))
+        found = {m["id"]: m for m in db.conn().execute(
+            f"SELECT * FROM media WHERE library_id=? AND id IN ({marks})", (library_id, *watched))}
+        for mid, state in watched.items():
+            m = found.get(mid)
+            if m is None:
+                changed[mid] = None  # deleted
+            elif card_state(m) != state:
+                changed[mid] = _card_html(m)
+    return {
+        "new": [_card_html(m) for m in new_items],  # newest first
+        "max_id": max([req.after, *(m["id"] for m in new_items)]),
+        "changed": changed,
+        "counts": templates.get_template("_counts.html").render(counts=_counts(library_id)),
+    }
 
 
 @admin.post("/libraries/{library_id}/upload")
@@ -278,7 +336,8 @@ def media_view(request: Request, media_id: int):
     lib = _lib_or_404(m["library_id"])
     sends = db.conn().execute("SELECT COUNT(*) n, MAX(sent_at) last FROM sends WHERE media_id=?", (media_id,)).fetchone()
     job = db.conn().execute("SELECT * FROM jobs WHERE media_id=? ORDER BY id DESC LIMIT 1", (media_id,)).fetchone()
-    return _render(request, "media.html", m=m, lib=lib, tags=db.media_tags(media_id), sends=sends, job=job)
+    return _render(request, "media.html", m=m, lib=lib, tags=db.media_tags(media_id), sends=sends, job=job,
+                   frames=json.loads(m["frames"] or "[]"))
 
 
 @admin.post("/media/{media_id}")
@@ -325,6 +384,58 @@ def media_delete(media_id: int):
         c.execute("DELETE FROM media WHERE id=?", (media_id,))
     ingest.delete_media_files(m)
     return RedirectResponse(f"/libraries/{m['library_id']}", status_code=303)
+
+
+@admin.get("/media/{media_id}/frame/{n}")
+def media_frame(media_id: int, n: int):
+    m = _media_or_404(media_id)
+    frames = json.loads(m["frames"] or "[]")
+    if not 0 <= n < len(frames):
+        raise HTTPException(404)
+    return FileResponse(ingest.derived_path(frames[n]), media_type="image/jpeg")
+
+
+# --- settings (tagging prompt) --------------------------------------------
+
+
+@admin.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, media_id: str = "", saved: str = ""):
+    custom = db.get_setting("tag_prompt")
+    return _render(request, "settings.html", prompt=custom or ollama.DEFAULT_PROMPT, custom=bool(custom),
+                   default_prompt=ollama.DEFAULT_PROMPT, media_id=media_id, saved=saved, settings=get_settings())
+
+
+@admin.post("/settings/prompt")
+def settings_save_prompt(prompt: str = Form(""), action: str = Form("save")):
+    text = prompt.replace("\r\n", "\n").strip()
+    if action == "reset" or not text or text == ollama.DEFAULT_PROMPT.strip():
+        db.delete_setting("tag_prompt")
+        return RedirectResponse("/settings?saved=reset", status_code=303)
+    db.set_setting("tag_prompt", text)
+    return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+@admin.post("/settings/preview", response_class=HTMLResponse)
+def settings_preview(request: Request, prompt: str = Form(""), media_id: str = Form("")):
+    """Run the tagger with the (unsaved) prompt on one item and show the result. Nothing is stored."""
+    mid = media_id.strip().lstrip("#")
+    if not mid.isdigit():
+        return HTMLResponse("<p class='err'>Enter a media ID (shown on each item's page, e.g. #42).</p>")
+    m = db.conn().execute("SELECT * FROM media WHERE id=?", (int(mid),)).fetchone()
+    if not m:
+        return HTMLResponse(f"<p class='err'>No media #{mid}.</p>")
+    try:
+        result = tagger.run_tagger(m["id"], system_prompt=prompt.replace("\r\n", "\n").strip() or None)
+    except Exception as e:
+        return HTMLResponse(f"<p class='err'>{html.escape(f'{type(e).__name__}: {e}')}</p>")
+    return _render(request, "_preview.html", m=m, result=result, current_tags=db.media_tags(m["id"]))
+
+
+@admin.post("/settings/retag-all", response_class=HTMLResponse)
+def settings_retag_all():
+    ids = [r["id"] for r in db.conn().execute("SELECT id FROM media WHERE tags_locked=0 AND thumb_path IS NOT NULL")]
+    n = tagger.enqueue(ids, "tag")
+    return HTMLResponse(f"<span class='ok'>Queued {n} item(s) across all libraries (manually edited items skipped).</span>")
 
 
 router.include_router(admin)

@@ -39,7 +39,7 @@ FAKE_TAGS = {
 }
 
 
-def fake_tag_images(paths, kind, character_notes=""):
+def fake_tag_images(paths, kind, character_notes="", system_prompt=None):
     from PIL import Image
 
     with Image.open(paths[0]) as im:

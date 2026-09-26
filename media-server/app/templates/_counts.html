@@ -1,0 +1,1 @@
+{{ counts.get('ready', 0) }} ready · {{ counts.get('pending', 0) + counts.get('tagging', 0) }} pending{% if counts.get('pending', 0) + counts.get('tagging', 0) %} <span class="spinner"></span>{% endif %}{% if counts.get('error') %} · <span class="err">{{ counts.get('error') }} errors</span>{% endif %}

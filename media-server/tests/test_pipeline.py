@@ -116,6 +116,10 @@ def test_video_prepare_transcode_and_range(client, env):
 
     m = db.conn().execute("SELECT * FROM media").fetchone()
     assert m["kind"] == "video" and m["play_path"] and m["poster_path"] and m["mime"] == "video/mp4"
+    page = client.get(f"/media/{m['id']}").text
+    assert "Frames the tagger saw" in page
+    assert client.get(f"/media/{m['id']}/frame/0").headers["content-type"] == "image/jpeg"
+    assert client.get(f"/media/{m['id']}/frame/9").status_code == 404
     assert 2.5 < m["duration"] < 3.5
 
     r = client.post("/api/send", json={"description": "beach selfie video", "model_id": "luna-rp", "media_type": "video",
@@ -140,3 +144,56 @@ def test_folder_import(client, env):
     client.post(f"/libraries/{lib_id}/import", data={"subdir": "../"})
     time.sleep(0.5)
     assert "not a folder under the import root" in client.get(f"/libraries/{lib_id}/import").text
+
+
+def test_tagging_prompt_settings_and_preview(client, env, monkeypatch):
+    from app import ollama
+
+    assert ollama.current_prompt() == ollama.DEFAULT_PROMPT
+    assert "built-in default" in client.get("/settings").text
+
+    client.post("/settings/prompt", data={"prompt": "Custom prompt\r\nline two", "action": "save"})
+    assert ollama.current_prompt() == "Custom prompt\nline two"
+    assert "custom prompt" in client.get("/settings").text
+
+    # Preview runs the tagger with the unsaved editor text and stores nothing.
+    lib_id = _create_library(client)
+    p = make_image(env / "src" / "red.png", "red")
+    with open(p, "rb") as f:
+        mid = client.post(f"/libraries/{lib_id}/upload", files={"file": (p.name, f, "image/png")}).json()["media_id"]
+    _wait_ready(1)
+    seen = {}
+    real = ollama.tag_images
+    monkeypatch.setattr(ollama, "tag_images", lambda *a, **kw: (seen.update(kw), real(*a, **kw))[1])
+    before = db.conn().execute("SELECT caption FROM media WHERE id=?", (mid,)).fetchone()["caption"]
+    r = client.post("/settings/preview", data={"prompt": "Try this", "media_id": f"#{mid}"})
+    assert r.status_code == 200 and "red bikini" in r.text and seen["system_prompt"] == "Try this"
+    assert db.conn().execute("SELECT caption FROM media WHERE id=?", (mid,)).fetchone()["caption"] == before
+    assert "No media #999" in client.post("/settings/preview", data={"prompt": "x", "media_id": "999"}).text
+
+    # Saving the default text (or reset) clears the custom prompt.
+    client.post("/settings/prompt", data={"prompt": "", "action": "reset"})
+    assert ollama.current_prompt() == ollama.DEFAULT_PROMPT
+
+
+def test_live_grid_updates(client, env):
+    lib_id = _create_library(client)
+    r = client.post(f"/libraries/{lib_id}/updates", json={"after": 0, "cards": {}}).json()
+    assert r["new"] == [] and r["max_id"] == 0
+
+    p = make_image(env / "src" / "blue.png", "blue")
+    with open(p, "rb") as f:
+        mid = client.post(f"/libraries/{lib_id}/upload", files={"file": (p.name, f, "image/png")}).json()["media_id"]
+    r = client.post(f"/libraries/{lib_id}/updates", json={"after": 0, "cards": {}}).json()
+    assert r["max_id"] == mid and f'id="card-{mid}"' in r["new"][0]
+    state = r["new"][0].split('data-state="')[1].split('"')[0]
+
+    _wait_ready(1)
+    r = client.post(f"/libraries/{lib_id}/updates", json={"after": mid, "cards": {str(mid): state}}).json()
+    assert r["new"] == [] and "ready" in r["changed"][str(mid)] and "1 ready" in r["counts"]
+    ready_state = r["changed"][str(mid)].split('data-state="')[1].split('"')[0]
+    # Nothing changed -> nothing re-rendered; deleted cards are reported as null.
+    assert client.post(f"/libraries/{lib_id}/updates", json={"after": mid, "cards": {str(mid): ready_state}}).json()["changed"] == {}
+    client.post(f"/media/{mid}/delete")
+    assert client.post(f"/libraries/{lib_id}/updates", json={"after": mid, "cards": {str(mid): ready_state}}).json()["changed"] == {str(mid): None}
+    assert client.get("/libraries-table").status_code == 200

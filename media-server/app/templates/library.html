@@ -5,8 +5,7 @@
   <div>
     <h1>{{ lib.name }}</h1>
     <div class="muted small">
-      {{ counts.get('ready', 0) }} ready · {{ counts.get('pending', 0) + counts.get('tagging', 0) }} pending ·
-      {% if counts.get('error') %}<span class="err">{{ counts.get('error') }} errors</span> · {% endif %}
+      <span id="counts">{% include "_counts.html" %}</span> ·
       rating cap <b>{{ lib.rating_cap }}</b> ·
       models: {% for m in model_ids %}<code>{{ m }}</code> {% else %}<span class="err">none linked</span>{% endfor %}
     </div>
@@ -80,10 +79,55 @@
   <div class="grid" id="grid">
     {% include "_grid.html" %}
   </div>
-  {% if not items %}<p class="muted">Nothing here yet.</p>{% endif %}
+  {% if not items %}<p class="muted" id="empty">Nothing here yet.</p>{% endif %}
 </div>
 
 <script>
+// Live updates: new uploads/imports appear at the top; cards update in place as they're prepared and tagged.
+(() => {
+  const grid = document.getElementById('grid'), counts = document.getElementById('counts');
+  const filters = new URLSearchParams(location.search);
+  const cards = () => [...grid.querySelectorAll('.card[data-id]')];
+  let maxId = Math.max(0, ...cards().map(c => +c.dataset.id));
+  let busy = false;
+
+  async function poll() {
+    if (busy || document.hidden) return;
+    busy = true;
+    try {
+      const body = {
+        after: maxId,
+        cards: Object.fromEntries(cards().map(c => [c.dataset.id, c.dataset.state])),
+        status: filters.get('status') || '', kind: filters.get('kind') || '', q: filters.get('q') || '',
+      };
+      const r = await fetch('/libraries/{{ lib.id }}/updates', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.new.length) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = d.new.join('');
+        tpl.content.querySelectorAll('.card').forEach(c => c.classList.add('fresh'));
+        grid.prepend(tpl.content);
+        document.getElementById('empty')?.remove();
+        maxId = d.max_id;
+      }
+      for (const [id, html] of Object.entries(d.changed)) {
+        const el = document.getElementById('card-' + id);
+        if (!el) continue;
+        if (html === null) { el.remove(); continue; }
+        el.outerHTML = html;
+      }
+      if (d.new.length || Object.keys(d.changed).length) htmx.process(grid);
+      counts.innerHTML = d.counts;
+    } catch (e) { /* network blip: try again next tick */ }
+    finally { busy = false; }
+  }
+  setInterval(poll, 3000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+})();
+
 (() => {
   const dz = document.getElementById('dz'), input = document.getElementById('files');
   const stat = document.getElementById('upstat'), bar = document.getElementById('upbar');
@@ -119,7 +163,7 @@
     stat.innerHTML = `Done: <span class="ok">${counts.created} added</span>, ${counts.duplicate} duplicates` +
       (counts.unsupported ? `, ${counts.unsupported} unsupported` : '') +
       (counts.error ? `, <span class="err">${counts.error} failed</span>` : '') +
-      ` · <a href="">refresh</a>`;
+      `. New items appear below as they're processed.`;
     input.value = '';
   }
 })();

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Settings · RP Media{% endblock %}
+{% block content %}
+<h1>Tagging prompt</h1>
+<p class="muted">The system prompt the vision model (<code>{{ settings.vision_model }}</code>) gets for every photo and video.
+  The library's <i>character notes</i> are added automatically, and for videos it's told the images are frames from one clip.</p>
+
+<div class="panel">
+  {% if saved == '1' %}<p class="ok">Saved. New tagging jobs use this prompt; already-tagged items keep their tags until re-tagged.</p>{% endif %}
+  {% if saved == 'reset' %}<p class="ok">Reset to the built-in default.</p>{% endif %}
+  <form method="post" action="/settings/prompt" id="promptform">
+    <div class="row" style="justify-content: space-between">
+      <span class="pill {{ 'pending' if custom else 'ready' }}">{{ 'custom prompt' if custom else 'built-in default' }}</span>
+    </div>
+    <textarea class="prompt" name="prompt" id="prompt" spellcheck="false">{{ prompt }}</textarea>
+    <p class="hint">
+      The <b>output fields are fixed</b> by a JSON schema regardless of the prompt: <code>caption</code>, <code>rating</code>
+      (sfw / suggestive / explicit), <code>tags</code> (outfit, location, activity, mood, framing, time_of_day) and
+      <code>extra_tags</code>. Use the prompt to steer <i>what</i> goes in them: vocabulary, detail level, how to judge rating.
+      Captions matter most, because they're what search matches against and what the chat model is told it sent.
+    </p>
+    <div class="row">
+      <button name="action" value="save">Save prompt</button>
+      {% if custom %}<button class="secondary" name="action" value="reset" onclick="return confirm('Discard the custom prompt and go back to the default?')">Reset to default</button>{% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Preview on an item</h2>
+  <p class="hint">Runs the prompt currently in the editor (saved or not) on one item and shows what it would produce. Nothing is saved.
+    Takes as long as a normal tagging job, and it uses the GPU even while the queue is paused.</p>
+  <form class="row" hx-post="/settings/preview" hx-target="#preview" hx-include="#prompt" hx-indicator="#previewing">
+    <input type="text" name="media_id" value="{{ media_id }}" placeholder="Media ID, e.g. 42" style="width: 180px">
+    <button class="secondary">Run preview</button>
+    <span id="previewing" class="htmx-indicator muted small"><span class="spinner"></span> asking the vision model…</span>
+  </form>
+  <div id="preview" style="margin-top: 12px"></div>
+</div>
+
+<div class="panel">
+  <h2>Apply to existing media</h2>
+  <p class="hint">Queue every item in every library for re-tagging with the saved prompt. Manually edited items are skipped.
+    For a single library, use Re-tag on that library's page.</p>
+  <form hx-post="/settings/retag-all" hx-target="#retagall" hx-confirm="Re-tag everything (except manually edited items)? This can take a while on a large library.">
+    <button class="secondary">Re-tag all libraries</button> <span id="retagall" class="small"></span>
+  </form>
+</div>
+
+{% if custom %}
+<details class="panel">
+  <summary>Built-in default prompt</summary>
+  <pre class="default-prompt">{{ default_prompt }}</pre>
+</details>
+{% endif %}
+{% endblock %}
