@@ -24,7 +24,7 @@ templates.env.globals["TAG_CATEGORIES"] = db.TAG_CATEGORIES
 
 def card_state(m) -> str:
     """Changes whenever a grid card needs re-rendering (used by the live-update poller)."""
-    return f"{m['status']}|{1 if m['thumb_path'] else 0}|{m['enabled']}"
+    return f"{m['status']}|{1 if m['thumb_path'] else 0}|{m['enabled']}|{m['tagged_at'] or ''}"
 
 
 templates.env.globals["card_state"] = card_state
@@ -335,9 +335,24 @@ def media_view(request: Request, media_id: int):
     m = _media_or_404(media_id)
     lib = _lib_or_404(m["library_id"])
     sends = db.conn().execute("SELECT COUNT(*) n, MAX(sent_at) last FROM sends WHERE media_id=?", (media_id,)).fetchone()
-    job = db.conn().execute("SELECT * FROM jobs WHERE media_id=? ORDER BY id DESC LIMIT 1", (media_id,)).fetchone()
-    return _render(request, "media.html", m=m, lib=lib, tags=db.media_tags(media_id), sends=sends, job=job,
-                   frames=json.loads(m["frames"] or "[]"))
+    return _render(request, "media.html", m=m, lib=lib, tags=db.media_tags(media_id), sends=sends,
+                   job=_active_job(media_id), paused=tagger.is_paused(), frames=json.loads(m["frames"] or "[]"))
+
+
+def _active_job(media_id: int):
+    return db.conn().execute(
+        "SELECT * FROM jobs WHERE media_id=? AND status IN ('queued','running') ORDER BY id LIMIT 1", (media_id,)
+    ).fetchone()
+
+
+@admin.get("/media/{media_id}/job", response_class=HTMLResponse)
+def media_job(request: Request, media_id: int):
+    """Polled by the media page while a job is active; reloads the page once the work is done."""
+    _media_or_404(media_id)
+    job = _active_job(media_id)
+    if job:
+        return _render(request, "_job_status.html", m={"id": media_id}, job=job, paused=tagger.is_paused())
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @admin.post("/media/{media_id}")

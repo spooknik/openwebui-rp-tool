@@ -1,0 +1,5 @@
+{% set labels = {'prepare': 'Preparing thumbnail/frames', 'tag': 'Tagging with the vision model', 'embed': 'Updating search index'} %}
+<p class="small muted" hx-get="/media/{{ m.id }}/job" hx-trigger="every 2s" hx-swap="outerHTML">
+  <span class="spinner"></span> {{ labels.get(job.kind, job.kind) }}{% if job.status == 'queued' %} (queued){% endif %}{% if paused and job.kind != 'prepare' %}. <b>GPU work is paused</b>, so resume it on the <a href="/">dashboard</a>{% endif %}…
+  the page refreshes with the new tags when it's done.
+</p>

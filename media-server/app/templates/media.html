@@ -38,7 +38,7 @@
       </span>
     </div>
     {% if m.error %}<p class="err small">{{ m.error }}</p>{% endif %}
-    {% if job and job.status in ('queued', 'running') %}<p class="small muted">Job: {{ job.kind }} ({{ job.status }})</p>{% endif %}
+    {% if job %}{% include "_job_status.html" %}{% endif %}
     <form method="post">
       <label>Caption</label>
       <textarea name="caption" rows="4">{{ m.caption }}</textarea>

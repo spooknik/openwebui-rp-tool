@@ -197,3 +197,35 @@ def test_live_grid_updates(client, env):
     client.post(f"/media/{mid}/delete")
     assert client.post(f"/libraries/{lib_id}/updates", json={"after": mid, "cards": {str(mid): ready_state}}).json()["changed"] == {str(mid): None}
     assert client.get("/libraries-table").status_code == 200
+
+
+def test_media_page_polls_until_retag_done(client, env):
+    lib_id = _create_library(client)
+    p = make_image(env / "src" / "green.png", "green")
+    with open(p, "rb") as f:
+        mid = client.post(f"/libraries/{lib_id}/upload", files={"file": (p.name, f, "image/png")}).json()["media_id"]
+    _wait_ready(1)
+    assert 'hx-get="/media/%d/job"' % mid not in client.get(f"/media/{mid}").text
+
+    from app import tagger
+
+    tagger.set_paused(True)
+    client.post(f"/media/{mid}/retag")
+    page = client.get(f"/media/{mid}").text
+    assert 'hx-get="/media/%d/job"' % mid in page and "GPU work is paused" in page
+    r = client.get(f"/media/{mid}/job")
+    assert "Tagging with the vision model" in r.text and "HX-Refresh" not in r.headers
+
+    tagger.set_paused(False)
+    _wait_ready(1)
+    deadline = time.time() + 10
+    while "HX-Refresh" not in client.get(f"/media/{mid}/job").headers and time.time() < deadline:
+        time.sleep(0.2)
+    assert client.get(f"/media/{mid}/job").headers.get("HX-Refresh") == "true"
+
+
+def test_card_state_changes_when_retagged():
+    from app.routes.admin import card_state
+
+    base = {"status": "ready", "thumb_path": "1/thumb.jpg", "enabled": 1, "tagged_at": "2026-09-26 10:00:00"}
+    assert card_state(base) != card_state({**base, "tagged_at": "2026-09-26 10:05:00"})
