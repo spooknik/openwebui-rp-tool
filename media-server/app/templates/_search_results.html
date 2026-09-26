@@ -1,0 +1,20 @@
+{% if error %}
+<p class="err">{{ error }}</p>
+{% elif q and not hits %}
+<p class="muted">No results. Is anything tagged yet, and is the embedding model reachable?</p>
+{% elif hits %}
+<table>
+  <tr><th style="width:110px"></th><th>Caption</th><th class="score">Score</th><th class="score">Vector</th><th class="score">Tags</th></tr>
+  {% for h in hits %}
+  <tr class="{{ 'below' if h.score < min_score else '' }}">
+    <td><a href="/media/{{ h.media_id }}"><img src="{{ media_url(h.media_id, 'thumb') }}" style="width:100px;height:100px;object-fit:cover;border-radius:8px" alt=""></a></td>
+    <td>{% if h.kind == 'video' %}<span class="pill">video</span> {% endif %}{% if h.rating %}<span class="pill">{{ h.rating }}</span> {% endif %}{{ h.caption }}
+      <div class="tags" style="margin-top:4px">{% for cat, vals in h.tags.items() %}{% for v in vals %}<span class="tag">{{ v }}</span>{% endfor %}{% endfor %}</div></td>
+    <td class="score"><b>{{ '%.3f' % h.score }}</b></td>
+    <td class="score">{{ '%.3f' % h.vec_score }}</td>
+    <td class="score">{{ '%.2f' % h.lex_score }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="hint">Send threshold (MIN_SCORE) = {{ min_score }}. The tool picks at random among the top 3 above it, favouring the best.</p>
+{% endif %}

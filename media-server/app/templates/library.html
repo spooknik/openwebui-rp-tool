@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ lib.name }} · RP Media{% endblock %}
+{% block content %}
+<div class="row" style="justify-content: space-between; margin-bottom: 12px">
+  <div>
+    <h1>{{ lib.name }}</h1>
+    <div class="muted small">
+      {{ counts.get('ready', 0) }} ready · {{ counts.get('pending', 0) + counts.get('tagging', 0) }} pending ·
+      {% if counts.get('error') %}<span class="err">{{ counts.get('error') }} errors</span> · {% endif %}
+      rating cap <b>{{ lib.rating_cap }}</b> ·
+      models: {% for m in model_ids %}<code>{{ m }}</code> {% else %}<span class="err">none linked</span>{% endfor %}
+    </div>
+  </div>
+  <a class="btn secondary" href="/libraries/{{ lib.id }}/edit">Edit library</a>
+</div>
+
+<div class="cols">
+  <div class="panel">
+    <h2>Upload</h2>
+    <div class="dropzone" id="dz">Drop images/videos here or click to choose<input type="file" id="files" multiple accept="image/*,video/*" hidden></div>
+    <div id="upstat" class="small" style="margin-top:8px"></div>
+    <progress id="upbar" value="0" max="1" hidden></progress>
+  </div>
+
+  <div class="panel">
+    <h2>Import from server folder</h2>
+    {% if import_dirs %}
+    <form hx-post="/libraries/{{ lib.id }}/import" hx-target="#impstat" class="row">
+      <select name="subdir" style="flex:1">
+        {% for d in import_dirs %}<option value="{{ d }}">/media/{{ d }}</option>{% endfor %}
+      </select>
+      <button>Import</button>
+    </form>
+    <p class="hint">Files are indexed in place (read-only) and never copied. Re-importing skips duplicates.</p>
+    {% else %}
+    <p class="muted small">No folder is mounted at the import root (<code>/media</code>). Mount a TrueNAS dataset there in the stack to enable this.</p>
+    {% endif %}
+    <div id="impstat">{% include "_import_status.html" %}</div>
+  </div>
+
+  <div class="panel">
+    <h2>Re-tag</h2>
+    <form hx-post="/libraries/{{ lib.id }}/retag" hx-target="#retagstat" class="row">
+      <select name="scope" style="flex:1">
+        <option value="errors">Only items with errors</option>
+        <option value="all">Everything (skips manually edited items)</option>
+      </select>
+      <button class="secondary">Queue</button>
+    </form>
+    <div id="retagstat" class="small" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Test search</h2>
+  <p class="hint">Type what the character would ask for, the same way the model calls the tool. Results use this library's rating cap. Faded rows fall below the send threshold.</p>
+  <form class="row" hx-get="/libraries/{{ lib.id }}/search" hx-target="#results" hx-indicator="#searching">
+    <input type="text" name="q" placeholder="mirror selfie in the bedroom wearing a black dress, playful" style="flex:1">
+    <select name="media_type" style="width:auto"><option value="any">any</option><option value="image">image</option><option value="video">video</option></select>
+    <button>Search</button><span id="searching" class="htmx-indicator muted small">searching…</span>
+  </form>
+  <div id="results" style="margin-top:12px"></div>
+</div>
+
+<div class="panel">
+  <form class="row" method="get" style="margin-bottom:12px">
+    <input type="text" name="q" value="{{ q }}" placeholder="Filter by caption/tags" style="flex:1; min-width: 200px">
+    <select name="status" style="width:auto">
+      {% for s, label in [('', 'all statuses'), ('ready', 'ready'), ('pending', 'pending'), ('tagging', 'tagging'), ('error', 'error'), ('disabled', 'disabled')] %}
+      <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="kind" style="width:auto">
+      {% for k, label in [('', 'images + videos'), ('image', 'images'), ('video', 'videos')] %}
+      <option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="secondary">Filter</button>
+  </form>
+  <div class="grid" id="grid">
+    {% include "_grid.html" %}
+  </div>
+  {% if not items %}<p class="muted">Nothing here yet.</p>{% endif %}
+</div>
+
+<script>
+(() => {
+  const dz = document.getElementById('dz'), input = document.getElementById('files');
+  const stat = document.getElementById('upstat'), bar = document.getElementById('upbar');
+  dz.onclick = () => input.click();
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
+  dz.ondragleave = () => dz.classList.remove('over');
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over'); upload([...e.dataTransfer.files]); };
+  input.onchange = () => upload([...input.files]);
+
+  function send(file) {
+    return new Promise(resolve => {
+      const fd = new FormData(); fd.append('file', file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/libraries/{{ lib.id }}/upload');
+      xhr.upload.onprogress = e => { if (e.lengthComputable) bar.value = done + e.loaded / e.total; };
+      xhr.onload = () => { try { resolve(JSON.parse(xhr.responseText).status || 'error'); } catch { resolve('error'); } };
+      xhr.onerror = () => resolve('error');
+      xhr.send(fd);
+    });
+  }
+  let done = 0;
+  async function upload(files) {
+    if (!files.length) return;
+    const counts = {created: 0, duplicate: 0, unsupported: 0, error: 0};
+    done = 0; bar.max = files.length; bar.value = 0; bar.hidden = false;
+    for (const f of files) {
+      stat.textContent = `Uploading ${done + 1}/${files.length}: ${f.name}`;
+      const status = await send(f);
+      counts[status] = (counts[status] || 0) + 1;
+      done++; bar.value = done;
+    }
+    bar.hidden = true;
+    stat.innerHTML = `Done: <span class="ok">${counts.created} added</span>, ${counts.duplicate} duplicates` +
+      (counts.unsupported ? `, ${counts.unsupported} unsupported` : '') +
+      (counts.error ? `, <span class="err">${counts.error} failed</span>` : '') +
+      ` · <a href="">refresh</a>`;
+    input.value = '';
+  }
+})();
+</script>
+{% endblock %}

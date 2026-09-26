@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="cols">
+  <div class="panel" style="grid-column: span 2">
+    <h2>Libraries</h2>
+    {% if libs %}
+    <table>
+      <tr><th>Library</th><th>Linked models</th><th>Ready</th><th>Pending</th><th>Errors</th><th>Rating cap</th></tr>
+      {% for l in libs %}
+      <tr>
+        <td><a href="/libraries/{{ l.id }}"><b>{{ l.name }}</b></a><div class="muted small">{{ l.slug }}</div></td>
+        <td>{% for m in model_ids(l) %}<code class="tag">{{ m }}</code> {% else %}<span class="err small">none: the tool can't find this library</span>{% endfor %}</td>
+        <td>{{ l.ready or 0 }}</td><td>{{ l.pending or 0 }}</td>
+        <td>{% if l.errors %}<span class="err">{{ l.errors }}</span>{% else %}0{% endif %}</td>
+        <td>{{ l.rating_cap }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="muted">No libraries yet. <a href="/libraries/new">Create one</a> for each character.</p>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <h2>Tagging queue</h2>
+    <div hx-get="/queue" hx-trigger="load, every 3s" hx-swap="innerHTML"></div>
+  </div>
+  <div class="panel">
+    <h2>Configuration</h2>
+    <table class="small">
+      <tr><td class="muted">Ollama</td><td><code>{{ settings.ollama_url }}</code></td></tr>
+      <tr><td class="muted">Vision model</td><td><code>{{ settings.vision_model }}</code></td></tr>
+      <tr><td class="muted">Embedding model</td><td><code>{{ settings.embed_model }}</code></td></tr>
+      <tr><td class="muted">Public URL</td><td><code>{{ settings.public_base_url }}</code></td></tr>
+      <tr><td class="muted">Min score</td><td>{{ settings.min_score }}</td></tr>
+      <tr><td class="muted">Default cooldown</td><td>{{ settings.default_cooldown_turns }} user turns</td></tr>
+    </table>
+    <p class="hint">Set these through environment variables in the Portainer stack.</p>
+  </div>
+</div>
+{% endblock %}

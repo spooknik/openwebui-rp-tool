@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel" style="max-width: 760px">
+  <h1>{{ "Edit " ~ lib.name if lib else "New library" }}</h1>
+  <form method="post">
+    <label>Name</label>
+    <input type="text" name="name" required value="{{ lib.name if lib else '' }}" placeholder="e.g. Luna">
+
+    <label>Linked Open WebUI model IDs</label>
+    <textarea name="model_ids" placeholder="luna-rp&#10;luna-rp-nsfw">{{ model_ids or '' }}</textarea>
+    <div class="hint">One per line. Use the <b>model ID</b> of the character preset in Open WebUI (Workspace → Models → edit → the ID under the name). The tool picks the library whose list contains the chat's model.</div>
+
+    <label>Character notes (for the tagger)</label>
+    <textarea name="character_notes" placeholder="Luna, 24, she/her. Long silver hair, green eyes, freckles.">{{ lib.character_notes if lib else '' }}</textarea>
+    <div class="hint">Passed to the vision model so captions name the character and use the right pronouns. Keep it short and visual.</div>
+
+    <div class="cols">
+      <div>
+        <label>Rating cap</label>
+        <select name="rating_cap">
+          {% for r in ['sfw', 'suggestive', 'explicit'] %}
+          <option value="{{ r }}" {% if (lib.rating_cap if lib else 'explicit') == r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint">Media rated above this is never sent.</div>
+      </div>
+      <div>
+        <label>Cooldown (user turns)</label>
+        <input type="number" min="0" name="cooldown_turns" value="{{ lib.cooldown_turns if lib and lib.cooldown_turns is not none else '' }}" placeholder="server default">
+        <div class="hint">Minimum user messages between <i>spontaneous</i> sends. Explicit requests ignore it.</div>
+      </div>
+    </div>
+    <p class="row" style="margin-top:16px">
+      <button>Save</button>
+      <a class="btn secondary" href="{{ '/libraries/%d' % lib.id if lib else '/' }}">Cancel</a>
+    </p>
+  </form>
+  {% if lib %}
+  <form method="post" action="/libraries/{{ lib.id }}/delete" onsubmit="return confirm('Delete this library and all its media? Imported originals on /media are not touched.')">
+    <button class="danger">Delete library</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

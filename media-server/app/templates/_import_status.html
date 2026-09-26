@@ -1,0 +1,7 @@
+{% if imp %}
+<div class="small" {% if imp.running %}hx-get="/libraries/{{ lib_id if lib_id is defined else lib.id }}/import" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if imp.running %}Importing <code>/media/{{ imp.path }}</code>…{% else %}Last import of <code>/media/{{ imp.path }}</code>:{% endif %}
+  {{ imp.scanned }} scanned, <span class="ok">{{ imp.added }} added</span>, {{ imp.duplicates }} duplicates{% if imp.errors %}, <span class="err">{{ imp.errors }} errors</span>{% endif %}
+  {% if imp.error %}<div class="err">{{ imp.error }}</div>{% endif %}
+</div>
+{% endif %}

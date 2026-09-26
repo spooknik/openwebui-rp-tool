@@ -1,0 +1,17 @@
+<table class="small">
+  <tr><td class="muted">Prepare (thumbnails/transcode)</td><td>{{ q.get('prepare_queued', 0) }} queued{% if q.get('prepare_running') %}, running{% endif %}</td></tr>
+  <tr><td class="muted">Tagging (vision)</td><td>{{ q.get('tag_queued', 0) }} queued{% if q.get('tag_running') %}, running{% endif %}</td></tr>
+  <tr><td class="muted">Embedding</td><td>{{ q.get('embed_queued', 0) }} queued{% if q.get('embed_running') %}, running{% endif %}</td></tr>
+  <tr><td class="muted">Failed</td><td>{% set f = q.get('prepare_failed', 0) + q.get('tag_failed', 0) + q.get('embed_failed', 0) %}{% if f %}<span class="err">{{ f }}</span>{% else %}0{% endif %}</td></tr>
+  {% if q.current.gpu %}<tr><td class="muted">GPU working on</td><td><a href="/media/{{ q.current.gpu.media_id }}">#{{ q.current.gpu.media_id }}</a> ({{ q.current.gpu.kind }})</td></tr>{% endif %}
+</table>
+<div class="row" style="margin-top:10px">
+  {% if q.paused %}
+    <span class="pill pending">GPU work paused</span>
+    <button hx-post="/queue/resume" hx-target="closest div[hx-get]">Resume</button>
+  {% else %}
+    <span class="pill ready">GPU work running</span>
+    <button class="secondary" hx-post="/queue/pause" hx-target="closest div[hx-get]" title="Pause so the tagger doesn't compete with the chat model for VRAM">Pause</button>
+  {% endif %}
+  {% if f %}<button class="secondary" hx-post="/queue/retry-failed" hx-target="closest div[hx-get]">Retry failed</button>{% endif %}
+</div>

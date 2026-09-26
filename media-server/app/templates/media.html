@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}#{{ m.id }} · {{ lib.name }}{% endblock %}
+{% block content %}
+<p><a href="/libraries/{{ lib.id }}">← {{ lib.name }}</a></p>
+<div class="media-layout">
+  <div class="panel preview">
+    {% if m.kind == 'video' %}
+      <video src="{{ media_url(m.id, 'full') }}" {% if m.poster_path %}poster="{{ media_url(m.id, 'poster') }}"{% endif %} controls playsinline loop></video>
+    {% else %}
+      <img src="{{ media_url(m.id, 'full') }}" alt="">
+    {% endif %}
+    <p class="muted small" style="margin-top:8px">
+      {{ m.kind }} · {{ m.width }}×{{ m.height }}{% if m.duration %} · {{ '%.1f' % m.duration }}s{% endif %} ·
+      {{ m.source }}: <code>{{ m.rel_path }}</code>{% if m.play_path %} · transcoded for playback{% endif %}<br>
+      sent {{ sends.n }} time(s){% if sends.last %}, last {{ sends.last }} UTC{% endif %}
+    </p>
+  </div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <span><span class="pill {{ m.status }}">{{ m.status }}</span>{% if m.tags_locked %} <span class="pill" title="Manually edited; bulk re-tag skips this item">edited</span>{% endif %}</span>
+      <form method="post" action="/media/{{ m.id }}/retag"><button class="secondary" title="Run the vision tagger again (overwrites manual edits)">Re-tag</button></form>
+    </div>
+    {% if m.error %}<p class="err small">{{ m.error }}</p>{% endif %}
+    {% if job and job.status in ('queued', 'running') %}<p class="small muted">Job: {{ job.kind }} ({{ job.status }})</p>{% endif %}
+    <form method="post">
+      <label>Caption</label>
+      <textarea name="caption" rows="4">{{ m.caption }}</textarea>
+      <div class="hint">The model is told this caption after it sends the item, so it can react in a consistent way.</div>
+      {% for cat in TAG_CATEGORIES %}
+      <label>{{ cat.replace('_', ' ') }}</label>
+      <input type="text" name="tag_{{ cat }}" value="{{ ', '.join(tags.get(cat, [])) }}">
+      {% endfor %}
+      <div class="cols" style="margin-top:6px">
+        <div>
+          <label>Rating</label>
+          <select name="rating">
+            {% for r in ['sfw', 'suggestive', 'explicit'] %}<option value="{{ r }}" {% if m.rating == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <label class="inline"><input type="checkbox" name="enabled" {% if m.enabled %}checked{% endif %}> Enabled (can be sent)</label>
+        </div>
+      </div>
+      <p class="row" style="margin-top:14px"><button>Save</button></p>
+    </form>
+    <form method="post" action="/media/{{ m.id }}/delete" onsubmit="return confirm('Delete this item?')">
+      <button class="danger">Delete</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RP Media Login</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="panel login">
+    <h1>📷 RP Media</h1>
+    <p class="muted">Enter the admin key (<code>ADMIN_API_KEY</code>).</p>
+    <form method="post" action="/login">
+      <input type="password" name="key" autofocus placeholder="Admin key">
+      {% if error %}<p class="err">{{ error }}</p>{% endif %}
+      <p><button>Log in</button></p>
+    </form>
+  </div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Portainer stack for the RP Media server.
+# Paste into Portainer → Stacks → Add stack → Web editor. The image is built by GitHub Actions
+# (.github/workflows/docker.yml) and published to GHCR on every push to main.
+# To build locally instead, replace `image:` with `build: ./media-server`.
+services:
+  rp-media:
+    image: ghcr.io/spooknik/openwebui-rp-tool:latest
+    container_name: rp-media
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      # App state: database, uploads, thumbnails, transcodes. Put it on a TrueNAS dataset.
+      - /mnt/tank/apps/rp-media/data:/data
+      # Optional: an existing media dataset to "import from folder" (indexed in place, read-only).
+      - /mnt/tank/media/rp:/media:ro
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://media.example.com}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY}
+      TOOL_API_KEY: ${TOOL_API_KEY:?set TOOL_API_KEY}
+      SIGNING_SECRET: ${SIGNING_SECRET:?set SIGNING_SECRET}
+      OLLAMA_URL: ${OLLAMA_URL:-http://192.168.1.10:11434}
+      VISION_MODEL: ${VISION_MODEL:-qwen3-vl:27b}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      MIN_SCORE: ${MIN_SCORE:-0.35}
+      DEFAULT_COOLDOWN_TURNS: ${DEFAULT_COOLDOWN_TURNS:-4}

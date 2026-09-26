@@ -1,0 +1,5 @@
+{% for m in items %}{% include "_card.html" %}{% endfor %}
+{% if more %}
+<div hx-get="/libraries/{{ lib.id }}?offset={{ next_offset }}&status={{ status }}&kind={{ kind }}&q={{ q | urlencode }}"
+     hx-trigger="revealed" hx-swap="outerHTML" class="muted small">Loading…</div>
+{% endif %}
