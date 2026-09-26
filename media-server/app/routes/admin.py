@@ -107,13 +107,13 @@ def queue_action(request: Request, action: str):
     elif action == "resume":
         tagger.set_paused(False)
     elif action == "retry-failed":
-        ids = [r["media_id"] for r in db.conn().execute("SELECT DISTINCT media_id FROM jobs WHERE status='failed'")]
-        db.conn().execute("DELETE FROM jobs WHERE status='failed'")
+        # Retry only the step that failed (a failed embed doesn't re-run vision tagging).
         with db.tx() as c:
-            for mid in ids:
-                m = c.execute("SELECT thumb_path FROM media WHERE id=?", (mid,)).fetchone()
-                c.execute("INSERT INTO jobs(media_id, kind) VALUES (?, ?)", (mid, "tag" if m and m["thumb_path"] else "prepare"))
-                c.execute("UPDATE media SET status='pending', error=NULL WHERE id=?", (mid,))
+            failed = c.execute("SELECT DISTINCT media_id, kind FROM jobs WHERE status='failed'").fetchall()
+            c.execute("DELETE FROM jobs WHERE status='failed'")
+            for f in failed:
+                c.execute("INSERT INTO jobs(media_id, kind) VALUES (?, ?)", (f["media_id"], f["kind"]))
+                c.execute("UPDATE media SET status='pending', error=NULL WHERE id=?", (f["media_id"],))
         tagger.wake()
     else:
         raise HTTPException(404)

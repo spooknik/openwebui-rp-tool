@@ -108,6 +108,7 @@ def _store_embedding(media_id: int) -> None:
         enqueue(ids, "embed")
     with db.tx() as c:
         db.upsert_vec(c, m["id"], m["library_id"], m["kind"], m["rating"], bool(m["enabled"]), vec)
+        c.execute("UPDATE media SET status='ready', error=NULL WHERE id=?", (media_id,))
 
 
 def _tag(media_id: int) -> None:
@@ -127,11 +128,12 @@ def _tag(media_id: int) -> None:
     result = ollama.tag_images(paths, m["kind"], m["character_notes"])
     with db.tx() as c:
         c.execute(
-            "UPDATE media SET caption=?, rating=?, status='ready', error=NULL, tagged_at=datetime('now') WHERE id=?",
+            "UPDATE media SET caption=?, rating=?, error=NULL, tagged_at=datetime('now') WHERE id=?",
             (result["caption"], result["rating"], media_id),
         )
         db.write_tags(c, media_id, result["caption"], result["tags"])
-    _store_embedding(media_id)
+        # Separate job so an embedding failure never re-runs the (slow) vision tagging.
+        c.execute("INSERT INTO jobs(media_id, kind) VALUES (?, 'embed')", (media_id,))
 
 
 def _run_loop(name: str, kinds: tuple[str, ...], pausable: bool) -> None:

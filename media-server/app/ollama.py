@@ -60,6 +60,23 @@ def _img_b64(path, max_side: int = 1024) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+class OllamaError(RuntimeError):
+    pass
+
+
+def _check(r: httpx.Response, model: str) -> None:
+    """Raise with Ollama's own error text (e.g. 'model not found') instead of a bare HTTP status."""
+    if r.is_success:
+        return
+    try:
+        detail = r.json().get("error") or r.text
+    except ValueError:
+        detail = r.text
+    if r.status_code == 404 and "not found" in detail.lower():
+        raise OllamaError(f"Ollama does not have model '{model}'. Run: ollama pull {model}")
+    raise OllamaError(f"Ollama {r.status_code} for {r.request.url.path}: {detail[:300]}")
+
+
 def _client() -> httpx.Client:
     s = get_settings()
     return httpx.Client(base_url=s.ollama_url.rstrip("/"), timeout=s.ollama_timeout)
@@ -91,7 +108,7 @@ def tag_images(paths: list, kind: str, character_notes: str = "") -> dict:
         if r.status_code == 400 and "think" in r.text:
             payload.pop("think")  # model without thinking support
             r = c.post("/api/chat", json=payload)
-        r.raise_for_status()
+        _check(r, s.vision_model)
         content = r.json()["message"]["content"]
     data = json.loads(content)
     tags = data.get("tags") or {}
@@ -109,7 +126,7 @@ def embed(texts: list[str]) -> list[list[float]]:
     s = get_settings()
     with _client() as c:
         r = c.post("/api/embed", json={"model": s.embed_model, "input": texts, "keep_alive": s.ollama_keep_alive})
-        r.raise_for_status()
+        _check(r, s.embed_model)
         return r.json()["embeddings"]
 
 

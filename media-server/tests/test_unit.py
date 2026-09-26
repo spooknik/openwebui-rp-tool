@@ -111,3 +111,15 @@ def test_library_for_model(env):
     _lib("luna", ("luna-rp", "luna-nsfw"))
     assert search.library_for_model("luna-nsfw")["slug"] == "luna"
     assert search.library_for_model("nobody") is None
+
+
+def test_ollama_missing_model_error_is_actionable():
+    import httpx
+    import pytest
+
+    from app import ollama
+
+    req = httpx.Request("POST", "http://ollama/api/embed")
+    r = httpx.Response(404, json={"error": 'model "nomic-embed-text" not found, try pulling it first'}, request=req)
+    with pytest.raises(ollama.OllamaError, match="ollama pull nomic-embed-text"):
+        ollama._check(r, "nomic-embed-text")
