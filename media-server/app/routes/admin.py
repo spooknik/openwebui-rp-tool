@@ -1,5 +1,6 @@
 """Admin UI (Jinja + htmx). Protected by ADMIN_API_KEY via a session cookie."""
 
+import asyncio
 import hashlib
 import hmac
 import html
@@ -12,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from .. import db, ingest, ollama, search, tagger
+from .. import db, ingest, ollama, search, tagger, toy
 from ..config import get_settings
 from ..signing import media_url
 
@@ -408,6 +409,34 @@ def media_frame(media_id: int, n: int):
     if not 0 <= n < len(frames):
         raise HTTPException(404)
     return FileResponse(ingest.derived_path(frames[n]), media_type="image/jpeg")
+
+
+# --- toy (Intiface bridge) ------------------------------------------------
+
+
+@admin.get("/toy", response_class=HTMLResponse)
+def toy_panel(request: Request):
+    return _render(request, "_toy.html", t=toy.bridge.status(), note=None)
+
+
+@admin.post("/toy/{action}", response_class=HTMLResponse)
+async def toy_action(request: Request, action: str):
+    b = toy.bridge
+    note = None
+    try:
+        if action == "stop":
+            await b.stop_pattern()
+        elif action == "test":
+            used = await b.play("pulse", 30, 5)
+            note = f"pulse at {used['intensity']}% for {used['duration_s']}s"
+        elif action == "scan":
+            await b.scan()
+            note = "scanning"
+        else:
+            raise HTTPException(404)
+    except (ConnectionError, LookupError, RuntimeError, asyncio.TimeoutError) as e:
+        note = f"error: {e}"
+    return _render(request, "_toy.html", t=b.status(), note=note)
 
 
 # --- settings (tagging prompt) --------------------------------------------

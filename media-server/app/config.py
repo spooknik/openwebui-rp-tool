@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     thumb_size: int = 384
     tag_max_attempts: int = 3
 
+    # Toy control via Intiface Central (Buttplug websocket). Empty = feature off.
+    intiface_url: str = ""  # e.g. ws://10.10.10.174:12345
+    toy_max_duration_s: int = 180  # hard cap per call; the bridge stops on its own after this
+    toy_max_intensity: float = 1.0  # 0..1 ceiling applied to every command
+    toy_rate_hz: float = 8.0  # how often a pattern may change the level
+
     def prefixes(self) -> tuple[str, str]:
         """(document_prefix, query_prefix) for the embedding model."""
         m = self.embed_model.lower()

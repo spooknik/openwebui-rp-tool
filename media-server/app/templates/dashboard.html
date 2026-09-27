@@ -10,6 +10,10 @@
     <div hx-get="/queue" hx-trigger="load, every 3s" hx-swap="innerHTML"></div>
   </div>
   <div class="panel">
+    <h2>Toy</h2>
+    <div hx-get="/toy" hx-trigger="load, every 3s" hx-swap="innerHTML"></div>
+  </div>
+  <div class="panel">
     <h2>Configuration</h2>
     <table class="small">
       <tr><td class="muted">Ollama</td><td><code>{{ settings.ollama_url }}</code></td></tr>
@@ -18,6 +22,7 @@
       <tr><td class="muted">Public URL</td><td><code>{{ settings.public_base_url }}</code></td></tr>
       <tr><td class="muted">Min score</td><td>{{ settings.min_score }}</td></tr>
       <tr><td class="muted">Default cooldown</td><td>{{ settings.default_cooldown_turns }} user turns</td></tr>
+      <tr><td class="muted">Intiface</td><td>{% if settings.intiface_url %}<code>{{ settings.intiface_url }}</code> (cap {{ settings.toy_max_duration_s }}s, {{ (settings.toy_max_intensity * 100) | round | int }}%){% else %}off{% endif %}</td></tr>
     </table>
     <p class="hint">Set these through environment variables in the Portainer stack.</p>
   </div>

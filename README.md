@@ -79,6 +79,37 @@ The admin UI is at `https://media.<domain>/` (log in with `ADMIN_API_KEY`).
 > it plays, and it survives a page reload. Then point its valves at `https://media.<domain>/...` URLs to test
 > the proxy.
 
+## 4. Toy control (optional)
+
+Lets a character drive a vibrator (tested target: Lovense Gush 2) through [Intiface Central](https://intiface.com/central/)
+running on the PC you chat from. The media server keeps one Buttplug websocket open to Intiface and runs repeating
+patterns on its own timer, because Intiface stops every device the moment a client disconnects. The Open WebUI tool
+just posts "play this pattern at this strength for this long" and returns immediately.
+
+```
+ Open WebUI tool: control_toy(action, pattern, intensity, duration_s)
+        │  POST /api/toy  (Bearer TOOL_API_KEY)
+        ▼
+ RP Media server  ── toy bridge (persistent Buttplug v3 websocket) ──►  Intiface Central on your PC  ──►  toy
+```
+
+1. **Intiface Central** (on the chatting PC): Settings → Server → enable **Listen on all interfaces**, keep port
+   `12345`, then start the server and connect the toy. Add a Windows Firewall inbound rule for TCP 12345 limited to
+   the TrueNAS IP so only the media server can reach it.
+2. **Stack variables**: `INTIFACE_URL=ws://<pc-ip>:12345` (e.g. `ws://10.10.10.174:12345`). Optional caps:
+   `TOY_MAX_DURATION_S` (default 180; the bridge stops the toy by itself after this, whatever the model asked for)
+   and `TOY_MAX_INTENSITY` (0..1). Update the stack; the dashboard's **Toy** panel shows the connection, the
+   devices Intiface reports, what is playing, and has **Stop**, a 5-second **Test** and **Scan** buttons.
+3. **Open WebUI**: Workspace → Tools → +, paste `openwebui/rp_toy_tool.py`, set the same `api_base_url` and
+   `api_key` valves as the media tool. Enable *RP Toy* on the character presets that may use it and append
+   `openwebui/toy_prompt_template.md` to their system prompt.
+
+Patterns all repeat until the time is up: `steady`, `pulse` (on/off each second), `wave` (4 s rise and fall),
+`ramp` (6 s climb then drop), `heartbeat`, `tease` (18 s build, 6 s back-off) and `random` (smoothly wandering).
+A new call replaces the running pattern, `action="stop"` switches it off, and the bridge sends level 0 and
+`StopAllDevices` when a run ends, is replaced, or the connection drops. Intiface runs on the PC and needs the
+toy paired to it, so nothing here touches Bluetooth.
+
 ## Development
 
 ```bash

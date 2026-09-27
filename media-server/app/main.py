@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import db, tagger
+from . import db, tagger, toy
 from .routes import admin, api, media
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -15,7 +15,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(app: FastAPI):
     db.init_db()
     tagger.start()
+    toy.start()
     yield
+    await toy.stop()
     tagger.stop()
 
 

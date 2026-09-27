@@ -1,0 +1,17 @@
+{% if not t.configured %}
+<p class="hint">Off. Set <code>INTIFACE_URL</code> (e.g. <code>ws://10.10.10.174:12345</code>) in the stack to let characters drive a toy
+  through Intiface Central. See the README section <i>Toy control</i>.</p>
+{% else %}
+<table class="small">
+  <tr><td class="muted">Intiface</td><td>{% if t.connected %}<span class="pill ready">connected</span>{% else %}<span class="pill pending">disconnected</span>{% endif %} <code>{{ t.url }}</code></td></tr>
+  <tr><td class="muted">Devices</td><td>{{ t.devices | join(', ') or 'none' }}</td></tr>
+  <tr><td class="muted">Now</td><td>{% if t.active %}<b>{{ t.active.pattern }}</b> at {{ t.active.intensity }}%, {{ t.active.remaining_s }}s left{% else %}idle{% endif %}</td></tr>
+  {% if t.error %}<tr><td class="muted">Last error</td><td class="err">{{ t.error }}</td></tr>{% endif %}
+</table>
+<div class="row" style="margin-top:10px">
+  <button class="danger" hx-post="/toy/stop" hx-target="closest div[hx-get]">Stop</button>
+  <button class="secondary" hx-post="/toy/test" hx-target="closest div[hx-get]" {% if not t.devices %}disabled{% endif %}>Test (pulse 30%, 5 s)</button>
+  <button class="secondary" hx-post="/toy/scan" hx-target="closest div[hx-get]" {% if not t.connected %}disabled{% endif %}>Scan</button>
+  {% if note %}<span class="small muted">{{ note }}</span>{% endif %}
+</div>
+{% endif %}

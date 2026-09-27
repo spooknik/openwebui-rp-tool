@@ -1,12 +1,13 @@
 """JSON API used by the Open WebUI tool (Bearer TOOL_API_KEY)."""
 
+import asyncio
 import hmac
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from .. import db, search
+from .. import db, search, toy
 from ..config import get_settings
 from ..signing import media_url
 
@@ -102,3 +103,40 @@ def api_send(req: SendRequest):
     if req.chat_id:
         search.record_send(req.chat_id, req.message_id, chosen.media_id, lib["id"], req.model_id, req.user_turn)
     return {"status": "sent", "score": round(chosen.score, 4), "media": media_payload(chosen.media_id)}
+
+
+# --- toy control (Intiface Central bridge) ----------------------------------
+
+
+class ToyRequest(BaseModel):
+    action: Literal["play", "stop"] = "play"
+    pattern: str = "wave"
+    intensity: int = 40  # 0..100
+    duration_s: int = 60
+    chat_id: str | None = None
+
+
+@router.get("/toy", dependencies=[Depends(require_tool_key)])
+def api_toy_status():
+    return {"patterns": {k: v[0] for k, v in toy.PATTERNS.items()}, **toy.bridge.status()}
+
+
+@router.post("/toy", dependencies=[Depends(require_tool_key)])
+async def api_toy(req: ToyRequest):
+    b = toy.bridge
+    if not b.configured:
+        return {"status": "unavailable", "reason": "INTIFACE_URL is not set"}
+    if req.action == "stop":
+        await b.stop_pattern()
+        return {"status": "stopped", **b.status()}
+    if req.pattern not in toy.PATTERNS:
+        raise HTTPException(422, f"unknown pattern; use one of {', '.join(toy.PATTERNS)}")
+    if not b.connected:
+        return {"status": "unavailable", "reason": b.error or "not connected to Intiface"}
+    if not b.vibrating_devices():
+        return {"status": "no_device", "reason": "no vibrating device connected in Intiface"}
+    try:
+        used = await b.play(req.pattern, req.intensity, req.duration_s)
+    except (ConnectionError, LookupError, RuntimeError, asyncio.TimeoutError) as e:
+        return {"status": "unavailable", "reason": str(e)}
+    return {"status": "stopped" if used["intensity"] == 0 else "playing", **used, "devices": b.status()["devices"]}

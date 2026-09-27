@@ -24,3 +24,7 @@ services:
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
       MIN_SCORE: ${MIN_SCORE:-0.35}
       DEFAULT_COOLDOWN_TURNS: ${DEFAULT_COOLDOWN_TURNS:-4}
+      # Optional toy control (Intiface Central on the chatting PC). Leave empty to disable.
+      INTIFACE_URL: ${INTIFACE_URL:-}
+      TOY_MAX_DURATION_S: ${TOY_MAX_DURATION_S:-180}
+      TOY_MAX_INTENSITY: ${TOY_MAX_INTENSITY:-1.0}

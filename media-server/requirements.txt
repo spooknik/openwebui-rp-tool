@@ -6,3 +6,4 @@ sqlite-vec>=0.1.6
 pillow>=11.0
 pydantic-settings>=2.4
 python-multipart>=0.0.9
+websockets>=13
