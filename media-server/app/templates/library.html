@@ -52,11 +52,18 @@
 
 <div class="panel">
   <h2>Test search</h2>
-  <p class="hint">Type what the character would ask for, the same way the model calls the tool. Results use this library's rating cap. Faded rows fall below the send threshold.</p>
-  <form class="row" hx-get="/libraries/{{ lib.id }}/search" hx-target="#results" hx-indicator="#searching">
-    <input type="text" name="q" placeholder="mirror selfie in the bedroom wearing a black dress, playful" style="flex:1">
-    <select name="media_type" style="width:auto"><option value="any">any</option><option value="image">image</option><option value="video">video</option></select>
-    <button>Search</button><span id="searching" class="htmx-indicator muted small">searching…</span>
+  <p class="hint">Type what the character would ask for, the same way the model calls the tool. Results use this library's rating cap. Faded rows fall below the send threshold.
+    The scene is optional story context (blended in at {{ (100 * scene_weight) | int }}%); max heat hides hotter items, as the per-chat heat ceiling does during a chat.</p>
+  <form hx-get="/libraries/{{ lib.id }}/search" hx-target="#results" hx-indicator="#searching">
+    <div class="row">
+      <input type="text" name="q" placeholder="mirror selfie in the bedroom wearing a black dress, playful" style="flex:1">
+      <select name="media_type" style="width:auto"><option value="any">any</option><option value="image">image</option><option value="video">video</option></select>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input type="text" name="scene" placeholder="scene (optional): she just got home from a night out and is teasing him" style="flex:1">
+      <select name="max_heat" style="width:auto" title="Max heat"><option value="">any heat</option>{% for h, name in HEAT_LABELS.items() %}<option value="{{ h }}">≤ {{ h }} {{ name }}</option>{% endfor %}</select>
+      <button>Search</button><span id="searching" class="htmx-indicator muted small">searching…</span>
+    </div>
   </form>
   <div id="results" style="margin-top:12px"></div>
 </div>

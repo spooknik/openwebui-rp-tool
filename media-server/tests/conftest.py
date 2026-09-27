@@ -27,10 +27,10 @@ def fake_embed(texts: list[str]) -> list[list[float]]:
 
 # Captions keyed by a marker colour in the test image, so the fake tagger is deterministic.
 FAKE_TAGS = {
-    "red": {"caption": "Luna takes a selfie at the beach wearing a red bikini, smiling.", "rating": "suggestive",
+    "red": {"caption": "Luna takes a selfie at the beach wearing a red bikini, smiling.", "rating": "suggestive", "heat": 3,
             "tags": {"outfit": ["red bikini"], "location": ["beach"], "activity": ["taking a selfie"], "mood": ["smiling"],
-                     "framing": ["selfie"], "time_of_day": ["day"], "extra": []}},
-    "blue": {"caption": "Luna reads a book in a cozy cafe wearing a blue sweater.", "rating": "sfw",
+                     "framing": ["selfie"], "time_of_day": ["day"], "context": ["on holiday", "teasing"], "extra": []}},
+    "blue": {"caption": "Luna reads a book in a cozy cafe wearing a blue sweater.", "rating": "sfw", "heat": 1,
              "tags": {"outfit": ["blue sweater"], "location": ["cafe"], "activity": ["reading"], "mood": ["calm"],
                       "framing": ["half body"], "time_of_day": ["morning"], "extra": ["coffee", "book"]}},
     "green": {"caption": "Luna in the gym doing a workout in green leggings.", "rating": "sfw",

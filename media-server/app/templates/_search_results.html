@@ -8,7 +8,7 @@
   {% for h in hits %}
   <tr class="{{ 'below' if h.score < min_score else '' }}">
     <td><a href="/media/{{ h.media_id }}"><img src="{{ media_url(h.media_id, 'thumb') }}" style="width:100px;height:100px;object-fit:cover;border-radius:8px" alt=""></a></td>
-    <td>{% if h.kind == 'video' %}<span class="pill">video</span> {% endif %}{% if h.rating %}<span class="pill">{{ h.rating }}</span> {% endif %}{{ h.caption }}
+    <td>{% if h.kind == 'video' %}<span class="pill">video</span> {% endif %}{% if h.rating %}<span class="pill">{{ h.rating }}</span> {% endif %}<span class="pill" title="heat">h{{ h.heat }}</span> {{ h.caption }}
       <div class="tags" style="margin-top:4px">{% for cat, vals in h.tags.items() %}{% for v in vals %}<span class="tag">{{ v }}</span>{% endfor %}{% endfor %}</div></td>
     <td class="score"><b>{{ '%.3f' % h.score }}</b></td>
     <td class="score">{{ '%.3f' % h.vec_score }}</td>

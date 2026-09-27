@@ -1,4 +1,13 @@
-"""Hybrid retrieval: vector KNN within a library partition, reranked with tag/caption overlap."""
+"""Hybrid retrieval: vector KNN within a library partition, reranked with tag/caption overlap.
+
+Two inputs describe what to send: the *description* (what the picture should show) and an optional *scene*
+(what is happening in the story right now). The scene is blended into the query vector and its words count
+for lexical overlap, so the tagger's `context` tags ("bedtime", "just got home") pull the right items forward.
+
+Heat (1..5) says how far into an intimate story an item belongs. A chat's heat is the hottest thing already
+sent in it (or the library's start heat), and a send may only go one step above that (two when the user asked
+outright). The model can also cap it lower with `scene_heat` when the story cooled down.
+"""
 
 import math
 import random
@@ -10,6 +19,8 @@ from .config import get_settings
 
 VEC_WEIGHT = 0.75
 LEX_WEIGHT = 0.25
+SCENE_WEIGHT = 0.3  # share of the query vector taken by the scene text
+HEAT_PENALTY = 0.02  # score lost per heat level below the target, so the current heat is preferred but not forced
 MAX_K = 4096  # sqlite-vec limit
 
 _STOP = set(
@@ -28,10 +39,18 @@ class Hit:
     tags: dict[str, list[str]] = field(default_factory=dict)
     vec_score: float = 0.0
     lex_score: float = 0.0
+    heat: int = db.HEAT_DEFAULT
+    target_heat: int | None = None
+
+    @property
+    def heat_penalty(self) -> float:
+        if self.target_heat is None:
+            return 0.0
+        return HEAT_PENALTY * max(0, self.target_heat - self.heat)
 
     @property
     def score(self) -> float:
-        return VEC_WEIGHT * self.vec_score + LEX_WEIGHT * self.lex_score
+        return VEC_WEIGHT * self.vec_score + LEX_WEIGHT * self.lex_score - self.heat_penalty
 
 
 def tokens(text: str) -> set[str]:
@@ -64,13 +83,43 @@ def sent_ids(chat_id: str | None) -> set[int]:
     return {r["media_id"] for r in db.conn().execute("SELECT media_id FROM sends WHERE chat_id=?", (chat_id,))}
 
 
+def chat_heat(library, chat_id: str | None) -> int:
+    """The hottest item already sent in this chat, or the library's starting heat for a fresh chat."""
+    start = db.clamp_heat(library["start_heat"] if "start_heat" in library.keys() else 1, default=1)
+    if not chat_id:
+        return start
+    row = db.conn().execute(
+        "SELECT MAX(m.heat) AS h FROM sends s JOIN media m ON m.id=s.media_id WHERE s.chat_id=?", (chat_id,)
+    ).fetchone()
+    return max(start, db.clamp_heat(row["h"], default=start)) if row and row["h"] is not None else start
+
+
+def heat_ceiling(library, chat_id: str | None, user_requested: bool, scene_heat: int | None = None) -> int:
+    """Hottest heat allowed for this send: one step up from the chat's heat (two on an explicit request),
+    capped by the model's own reading of the scene when it gives one."""
+    ceiling = min(db.HEAT_MAX, chat_heat(library, chat_id) + (2 if user_requested else 1))
+    if scene_heat:
+        ceiling = min(ceiling, db.clamp_heat(scene_heat))
+    return ceiling
+
+
+def query_vector(query: str, scene: str | None = None) -> list[float]:
+    prefix = get_settings().prefixes()[1]
+    if not (scene or "").strip():
+        return ollama.embed([prefix + query])[0]
+    q, s = ollama.embed([prefix + query, prefix + scene.strip()])
+    v = [(1 - SCENE_WEIGHT) * a + SCENE_WEIGHT * b for a, b in zip(q, s)]
+    n = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / n for x in v]
+
+
 def search(library, query: str, media_type: str = "any", exclude: set[int] | None = None, limit: int = 20,
-           query_vec: list[float] | None = None) -> list[Hit]:
+           query_vec: list[float] | None = None, scene: str | None = None, max_heat: int | None = None) -> list[Hit]:
     exclude = exclude or set()
     if not db.vec_table_exists():
         return []
     if query_vec is None:
-        query_vec = ollama.embed([get_settings().prefixes()[1] + query])[0]
+        query_vec = query_vector(query, scene)
     if db.vec_dim() != len(query_vec):
         return []  # mid re-embed after a model switch
 
@@ -82,20 +131,24 @@ def search(library, query: str, media_type: str = "any", exclude: set[int] | Non
     if media_type in ("image", "video"):
         sql += " AND kind = ?"
         params.append(media_type)
+    if max_heat is not None:
+        sql += " AND heat <= ?"
+        params.append(db.clamp_heat(max_heat))
     rows = db.conn().execute(sql, params).fetchall()
 
-    qt = tokens(query)
+    qt = tokens(query) | (tokens(scene) if scene else set())
     hits: list[Hit] = []
     c = db.conn()
     for r in rows:
         if r["media_id"] in exclude:
             continue
-        m = c.execute("SELECT id, kind, caption, rating FROM media WHERE id=?", (r["media_id"],)).fetchone()
+        m = c.execute("SELECT id, kind, caption, rating, heat FROM media WHERE id=?", (r["media_id"],)).fetchone()
         if not m:
             continue
         tags = db.media_tags(m["id"])
         hits.append(Hit(m["id"], m["kind"], m["caption"], m["rating"], tags,
-                        vec_score=1.0 - float(r["distance"]), lex_score=lexical_overlap(qt, m["caption"], tags)))
+                        vec_score=1.0 - float(r["distance"]), lex_score=lexical_overlap(qt, m["caption"], tags),
+                        heat=db.clamp_heat(m["heat"]), target_heat=max_heat))
     hits.sort(key=lambda h: h.score, reverse=True)
     return hits[:limit]
 

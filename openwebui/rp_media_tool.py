@@ -36,6 +36,8 @@ class Tools:
         description: str,
         media_type: Literal["image", "video", "any"] = "image",
         user_requested: bool = False,
+        scene: str = "",
+        scene_heat: int = 0,
         __model__: Optional[dict] = None,
         __chat_id__: Optional[str] = None,
         __message_id__: Optional[str] = None,
@@ -52,6 +54,8 @@ class Tools:
         :param description: What the photo/video should show, written as a visual description: framing (selfie, mirror selfie, close-up, full body), location, outfit, activity, mood and time of day. Example: "mirror selfie in the bedroom wearing a black dress, playful smile, night".
         :param media_type: "image" for a photo, "video" for a short clip, "any" if either is fine.
         :param user_requested: true if the user explicitly asked for a picture or video in their last message, false if you are sending it spontaneously.
+        :param scene: One sentence on what is happening in the story right now and the moment this fits (e.g. "she just got home from the gym and is teasing him before a shower"). This picks media that suits the moment, not only the look.
+        :param scene_heat: How intimate the story is right now, 1-5: 1 everyday/innocent, 2 flirty, 3 teasing (lingerie, suggestive), 4 nude, 5 sexual. The photo will not be hotter than this. 0 if unsure.
         """
         emit = __event_emitter__ or (lambda _e: _noop())
 
@@ -66,6 +70,8 @@ class Tools:
             "description": description,
             "media_type": media_type,
             "user_requested": bool(user_requested),
+            "scene": scene or None,
+            "scene_heat": int(scene_heat) if scene_heat else None,
             "model_id": model_id,
             "library": self.valves.library_override or None,
             "chat_id": __chat_id__,
@@ -106,7 +112,7 @@ class Tools:
 
         media = data["media"]
         kind = "photo" if media["kind"] == "image" else "video"
-        extra = f" (score {data.get('score')})" if self.valves.debug else ""
+        extra = f" (score {data.get('score')}, heat {media.get('heat')}/{data.get('max_heat')})" if self.valves.debug else ""
         await status(f"📷 Sent a {kind}{extra}", done=True)
 
         context = (

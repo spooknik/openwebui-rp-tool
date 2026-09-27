@@ -42,7 +42,8 @@
     <form method="post">
       <label>Caption</label>
       <textarea name="caption" rows="4">{{ m.caption }}</textarea>
-      <div class="hint">The model is told this caption after it sends the item, so it can react in a consistent way.</div>
+      <div class="hint">The model is told this caption after it sends the item, so it can react in a consistent way.
+        <i>context</i> tags are the story moments this fits ("bedtime", "just got home"); <i>heat</i> is how far into an intimate story it belongs.</div>
       {% for cat in TAG_CATEGORIES %}
       <label>{{ cat.replace('_', ' ') }}</label>
       <input type="text" name="tag_{{ cat }}" value="{{ ', '.join(tags.get(cat, [])) }}">
@@ -52,6 +53,12 @@
           <label>Rating</label>
           <select name="rating">
             {% for r in ['sfw', 'suggestive', 'explicit'] %}<option value="{{ r }}" {% if m.rating == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Heat</label>
+          <select name="heat">
+            {% for h, name in HEAT_LABELS.items() %}<option value="{{ h }}" {% if m.heat == h %}selected{% endif %}>{{ h }} · {{ name }}</option>{% endfor %}
           </select>
         </div>
         <div>

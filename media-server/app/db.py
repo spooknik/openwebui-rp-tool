@@ -10,7 +10,10 @@ import sqlite_vec
 from .config import get_settings
 
 RATING_LEVELS = {"sfw": 0, "suggestive": 1, "explicit": 2}
-TAG_CATEGORIES = ["outfit", "location", "activity", "mood", "framing", "time_of_day", "extra"]
+TAG_CATEGORIES = ["outfit", "location", "activity", "mood", "framing", "time_of_day", "context", "extra"]
+HEAT_MIN, HEAT_MAX, HEAT_DEFAULT = 1, 5, 3
+HEAT_LABELS = {1: "innocent", 2: "flirty", 3: "teasing", 4: "nude", 5: "sexual"}
+VEC_SCHEMA = "2"  # bump when media_vec gains metadata columns; triggers one full re-embed
 
 _SCHEMA = Path(__file__).with_name("schema.sql")
 _local = threading.local()
@@ -71,9 +74,28 @@ def init_db() -> None:
     s.derived_dir.mkdir(parents=True, exist_ok=True)
     c = conn()
     c.executescript(_SCHEMA.read_text(encoding="utf-8"))
+    _migrate(c)
     # Jobs left 'running' by a crash go back to the queue.
     c.execute("UPDATE jobs SET status='queued' WHERE status='running'")
     c.execute("UPDATE media SET status='pending' WHERE status='tagging'")
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """Add columns introduced after the first release (CREATE TABLE IF NOT EXISTS never alters existing tables)."""
+    for table, column, ddl in (
+        ("media", "heat", f"INTEGER NOT NULL DEFAULT {HEAT_DEFAULT}"),
+        ("libraries", "start_heat", "INTEGER NOT NULL DEFAULT 1"),
+    ):
+        cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def clamp_heat(value, default: int = HEAT_DEFAULT) -> int:
+    try:
+        return max(HEAT_MIN, min(HEAT_MAX, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 # --- settings -------------------------------------------------------------
@@ -110,7 +132,7 @@ def vec_dim() -> int | None:
 def ensure_vec_table(dim: int, model: str) -> bool:
     """Create media_vec for this dim/model. Returns True if the table was (re)created and needs a re-embed."""
     cur_dim, cur_model = vec_dim(), get_setting("embed_model")
-    if cur_dim == dim and cur_model == model:
+    if cur_dim == dim and cur_model == model and get_setting("vec_schema") == VEC_SCHEMA:
         return False
     with tx() as c:
         c.execute("DROP TABLE IF EXISTS media_vec")
@@ -120,12 +142,14 @@ def ensure_vec_table(dim: int, model: str) -> bool:
                 library_id integer partition key,
                 kind text,
                 rating_level integer,
+                heat integer,
                 enabled integer,
                 embedding float[{dim}] distance_metric=cosine
             )"""
         )
         c.execute("INSERT INTO settings(key,value) VALUES('embed_dim',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(dim),))
         c.execute("INSERT INTO settings(key,value) VALUES('embed_model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (model,))
+        c.execute("INSERT INTO settings(key,value) VALUES('vec_schema',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (VEC_SCHEMA,))
     return cur_dim is not None or cur_model is not None
 
 
@@ -133,11 +157,12 @@ def vec_table_exists() -> bool:
     return conn().execute("SELECT 1 FROM sqlite_master WHERE name='media_vec'").fetchone() is not None
 
 
-def upsert_vec(c: sqlite3.Connection, media_id: int, library_id: int, kind: str, rating: str | None, enabled: bool, vec: list[float]) -> None:
+def upsert_vec(c: sqlite3.Connection, media_id: int, library_id: int, kind: str, rating: str | None, enabled: bool, vec: list[float],
+               heat: int = HEAT_DEFAULT) -> None:
     c.execute("DELETE FROM media_vec WHERE media_id=?", (media_id,))
     c.execute(
-        "INSERT INTO media_vec(media_id, library_id, kind, rating_level, enabled, embedding) VALUES (?,?,?,?,?,?)",
-        (media_id, library_id, kind, RATING_LEVELS.get(rating or "explicit", 2), int(enabled), pack_vec(vec)),
+        "INSERT INTO media_vec(media_id, library_id, kind, rating_level, heat, enabled, embedding) VALUES (?,?,?,?,?,?,?)",
+        (media_id, library_id, kind, RATING_LEVELS.get(rating or "explicit", 2), clamp_heat(heat), int(enabled), pack_vec(vec)),
     )
 
 
@@ -145,11 +170,11 @@ def sync_vec_meta(c: sqlite3.Connection, media_id: int) -> None:
     """Push enabled/rating changes from media into media_vec."""
     if not vec_table_exists():
         return
-    row = c.execute("SELECT rating, enabled FROM media WHERE id=?", (media_id,)).fetchone()
+    row = c.execute("SELECT rating, heat, enabled FROM media WHERE id=?", (media_id,)).fetchone()
     if row:
         c.execute(
-            "UPDATE media_vec SET rating_level=?, enabled=? WHERE media_id=?",
-            (RATING_LEVELS.get(row["rating"] or "explicit", 2), row["enabled"], media_id),
+            "UPDATE media_vec SET rating_level=?, heat=?, enabled=? WHERE media_id=?",
+            (RATING_LEVELS.get(row["rating"] or "explicit", 2), clamp_heat(row["heat"]), row["enabled"], media_id),
         )
 
 

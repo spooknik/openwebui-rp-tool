@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS libraries (
     character_notes TEXT NOT NULL DEFAULT '',
     model_ids TEXT NOT NULL DEFAULT '[]',          -- JSON list of Open WebUI model/preset ids
     rating_cap TEXT NOT NULL DEFAULT 'explicit',   -- sfw | suggestive | explicit
+    start_heat INTEGER NOT NULL DEFAULT 1,         -- heat a fresh chat starts at (1..5)
     cooldown_turns INTEGER,                        -- NULL = server default
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS media (
     frames TEXT NOT NULL DEFAULT '[]',             -- JSON list of keyframe paths (videos)
     caption TEXT NOT NULL DEFAULT '',
     rating TEXT,
+    heat INTEGER NOT NULL DEFAULT 3,               -- 1 innocent .. 5 sexual; see ollama.DEFAULT_PROMPT
     enabled INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'pending',        -- pending | tagging | ready | error
     error TEXT,

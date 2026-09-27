@@ -21,6 +21,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent.parent / "templates")
 templates.env.globals["media_url"] = media_url
 templates.env.globals["TAG_CATEGORIES"] = db.TAG_CATEGORIES
+templates.env.globals["HEAT_LABELS"] = db.HEAT_LABELS
 
 
 def card_state(m) -> str:
@@ -155,11 +156,13 @@ def library_new(request: Request):
     return _render(request, "library_form.html", lib=None, error=None)
 
 
-def _save_library(library_id: int | None, name: str, character_notes: str, model_ids: str, rating_cap: str, cooldown_turns: str):
+def _save_library(library_id: int | None, name: str, character_notes: str, model_ids: str, rating_cap: str, cooldown_turns: str,
+                  start_heat: str = "1"):
     ids = [x.strip() for x in re.split(r"[\n,]+", model_ids) if x.strip()]
     cooldown = int(cooldown_turns) if cooldown_turns.strip() else None
     if rating_cap not in db.RATING_LEVELS:
         rating_cap = "explicit"
+    heat = db.clamp_heat(start_heat, default=1)
     with db.tx() as c:
         if library_id is None:
             slug, n = _slugify(name), 1
@@ -167,21 +170,22 @@ def _save_library(library_id: int | None, name: str, character_notes: str, model
                 n += 1
                 slug = f"{_slugify(name)}-{n}"
             cur = c.execute(
-                "INSERT INTO libraries(slug, name, character_notes, model_ids, rating_cap, cooldown_turns) VALUES (?,?,?,?,?,?)",
-                (slug, name.strip(), character_notes, json.dumps(ids), rating_cap, cooldown),
+                "INSERT INTO libraries(slug, name, character_notes, model_ids, rating_cap, cooldown_turns, start_heat) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (slug, name.strip(), character_notes, json.dumps(ids), rating_cap, cooldown, heat),
             )
             return cur.lastrowid
         c.execute(
-            "UPDATE libraries SET name=?, character_notes=?, model_ids=?, rating_cap=?, cooldown_turns=? WHERE id=?",
-            (name.strip(), character_notes, json.dumps(ids), rating_cap, cooldown, library_id),
+            "UPDATE libraries SET name=?, character_notes=?, model_ids=?, rating_cap=?, cooldown_turns=?, start_heat=? WHERE id=?",
+            (name.strip(), character_notes, json.dumps(ids), rating_cap, cooldown, heat, library_id),
         )
         return library_id
 
 
 @admin.post("/libraries/new")
 def library_create(name: str = Form(...), character_notes: str = Form(""), model_ids: str = Form(""),
-                   rating_cap: str = Form("explicit"), cooldown_turns: str = Form("")):
-    lid = _save_library(None, name, character_notes, model_ids, rating_cap, cooldown_turns)
+                   rating_cap: str = Form("explicit"), cooldown_turns: str = Form(""), start_heat: str = Form("1")):
+    lid = _save_library(None, name, character_notes, model_ids, rating_cap, cooldown_turns, start_heat)
     return RedirectResponse(f"/libraries/{lid}", status_code=303)
 
 
@@ -193,9 +197,9 @@ def library_edit(request: Request, library_id: int):
 
 @admin.post("/libraries/{library_id}/edit")
 def library_update(library_id: int, name: str = Form(...), character_notes: str = Form(""), model_ids: str = Form(""),
-                   rating_cap: str = Form("explicit"), cooldown_turns: str = Form("")):
+                   rating_cap: str = Form("explicit"), cooldown_turns: str = Form(""), start_heat: str = Form("1")):
     _lib_or_404(library_id)
-    _save_library(library_id, name, character_notes, model_ids, rating_cap, cooldown_turns)
+    _save_library(library_id, name, character_notes, model_ids, rating_cap, cooldown_turns, start_heat)
     return RedirectResponse(f"/libraries/{library_id}", status_code=303)
 
 
@@ -240,7 +244,7 @@ def library_view(request: Request, library_id: int, status: str = "", kind: str 
     ctx = dict(lib=lib, items=items, more=more, next_offset=offset + PAGE_SIZE, status=status, kind=kind, q=q)
     if request.headers.get("HX-Request") and offset:
         return _render(request, "_grid.html", **ctx)
-    return _render(request, "library.html", counts=_counts(library_id), import_dirs=ingest.list_import_dirs(),
+    return _render(request, "library.html", counts=_counts(library_id), import_dirs=ingest.list_import_dirs(), scene_weight=search.SCENE_WEIGHT,
                    imp=ingest.import_status.get(library_id), model_ids=db.library_model_ids(lib), **ctx)
 
 
@@ -317,12 +321,13 @@ def library_retag(library_id: int, scope: str = Form("errors")):
 
 
 @admin.get("/libraries/{library_id}/search", response_class=HTMLResponse)
-def library_search(request: Request, library_id: int, q: str = "", media_type: str = "any"):
+def library_search(request: Request, library_id: int, q: str = "", media_type: str = "any", scene: str = "", max_heat: str = ""):
     lib = _lib_or_404(library_id)
     hits, error = [], None
     if q.strip():
         try:
-            hits = search.search(lib, q, media_type, limit=12)
+            hits = search.search(lib, q, media_type, limit=12, scene=scene or None,
+                                 max_heat=db.clamp_heat(max_heat) if max_heat.strip() else None)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
     return _render(request, "_search_results.html", hits=hits, error=error, q=q, min_score=get_settings().min_score)
@@ -362,10 +367,12 @@ async def media_save(request: Request, media_id: int):
     form = await request.form()
     caption = str(form.get("caption", "")).strip()
     rating = str(form.get("rating", "")) if form.get("rating") in db.RATING_LEVELS else m["rating"]
+    heat = db.clamp_heat(form.get("heat"), default=m["heat"])
     enabled = 1 if form.get("enabled") else 0
     tags = {cat: [t for t in str(form.get(f"tag_{cat}", "")).split(",") if t.strip()] for cat in db.TAG_CATEGORIES}
     with db.tx() as c:
-        c.execute("UPDATE media SET caption=?, rating=?, enabled=?, tags_locked=1 WHERE id=?", (caption, rating, enabled, media_id))
+        c.execute("UPDATE media SET caption=?, rating=?, heat=?, enabled=?, tags_locked=1 WHERE id=?",
+                  (caption, rating, heat, enabled, media_id))
         db.write_tags(c, media_id, caption, tags)
         db.sync_vec_meta(c, media_id)
     if m["status"] == "ready":

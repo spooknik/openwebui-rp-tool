@@ -25,6 +25,15 @@
         <div class="hint">Media rated above this is never sent.</div>
       </div>
       <div>
+        <label>Starting heat</label>
+        <select name="start_heat">
+          {% for h, name in HEAT_LABELS.items() %}
+          <option value="{{ h }}" {% if (lib.start_heat if lib else 1) == h %}selected{% endif %}>{{ h }} · {{ name }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint">Heat a fresh chat starts at. Each send may go one step hotter than what's been sent in the chat (two if asked).</div>
+      </div>
+      <div>
         <label>Cooldown (user turns)</label>
         <input type="number" min="0" name="cooldown_turns" value="{{ lib.cooldown_turns if lib and lib.cooldown_turns is not none else '' }}" placeholder="server default">
         <div class="hint">Minimum user messages between <i>spontaneous</i> sends. Explicit requests ignore it.</div>

@@ -26,6 +26,8 @@ class SendRequest(BaseModel):
     library: str | None = None  # slug; overrides model_id lookup
     media_type: Literal["image", "video", "any"] = "image"
     user_requested: bool = False
+    scene: str | None = None  # what is happening in the story right now
+    scene_heat: int | None = None  # 1..5 as judged by the chat model; 0/None = unknown
     chat_id: str | None = None
     message_id: str | None = None
     user_turn: int | None = None
@@ -38,6 +40,8 @@ class SearchRequest(BaseModel):
     media_type: Literal["image", "video", "any"] = "any"
     chat_id: str | None = None
     limit: int = 10
+    scene: str | None = None
+    max_heat: int | None = None
 
 
 def _resolve_library(model_id: str | None, slug: str | None):
@@ -61,6 +65,7 @@ def media_payload(media_id: int) -> dict:
         "duration": m["duration"],
         "caption": m["caption"],
         "rating": m["rating"],
+        "heat": m["heat"],
         "tags": db.media_tags(m["id"]),
     }
 
@@ -82,7 +87,8 @@ def libraries():
 @router.post("/search", dependencies=[Depends(require_tool_key)])
 def api_search(req: SearchRequest):
     lib = _resolve_library(req.model_id, req.library)
-    hits = search.search(lib, req.description, req.media_type, exclude=search.sent_ids(req.chat_id), limit=req.limit)
+    hits = search.search(lib, req.description, req.media_type, exclude=search.sent_ids(req.chat_id), limit=req.limit,
+                         scene=req.scene, max_heat=req.max_heat)
     return [{"score": round(h.score, 4), "vec": round(h.vec_score, 4), "lex": round(h.lex_score, 4), **media_payload(h.media_id)} for h in hits]
 
 
@@ -95,14 +101,16 @@ def api_send(req: SendRequest):
         if remaining:
             return {"status": "cooldown", "turns_remaining": remaining}
 
-    hits = search.search(lib, req.description, req.media_type, exclude=search.sent_ids(req.chat_id))
+    ceiling = search.heat_ceiling(lib, req.chat_id, req.user_requested, req.scene_heat)
+    hits = search.search(lib, req.description, req.media_type, exclude=search.sent_ids(req.chat_id),
+                         scene=req.scene, max_heat=ceiling)
     chosen = search.pick(hits, get_settings().min_score)
     if not chosen:
-        return {"status": "no_match", "best_score": round(hits[0].score, 4) if hits else None}
+        return {"status": "no_match", "best_score": round(hits[0].score, 4) if hits else None, "max_heat": ceiling}
 
     if req.chat_id:
         search.record_send(req.chat_id, req.message_id, chosen.media_id, lib["id"], req.model_id, req.user_turn)
-    return {"status": "sent", "score": round(chosen.score, 4), "media": media_payload(chosen.media_id)}
+    return {"status": "sent", "score": round(chosen.score, 4), "max_heat": ceiling, "media": media_payload(chosen.media_id)}
 
 
 # --- toy control (Intiface Central bridge) ----------------------------------

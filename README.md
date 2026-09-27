@@ -5,7 +5,7 @@ per-character library instead of generated on the fly.
 
 ```
  Open WebUI (Qwen, native tool calling)
-   └─ Tool: send_media(description, media_type, user_requested)
+   └─ Tool: send_media(description, media_type, user_requested, scene, scene_heat)
         │  POST /api/send  (server→server, internal URL, Bearer TOOL_API_KEY)
         ▼
  RP Media server (FastAPI + SQLite + sqlite-vec)  ──►  Ollama (vision tagger + embeddings)
@@ -16,10 +16,16 @@ per-character library instead of generated on the fly.
 ```
 
 - **Libraries**: one per character, linked to one or more Open WebUI model/preset IDs.
-- **Auto-tagging**: the Ollama vision model writes a caption, rating (sfw/suggestive/explicit) and tags
-  (outfit, location, activity, mood, framing, time of day, extra). For videos it looks at 4 keyframes.
-- **Hybrid search**: embedding similarity on caption+tags (75%) plus tag/caption word overlap (25%). Items
-  are never repeated within a chat, the library's rating cap is respected, and nothing is sent below `MIN_SCORE`.
+- **Auto-tagging**: the Ollama vision model writes a caption, rating (sfw/suggestive/explicit), a **heat** level
+  (1 innocent … 5 sexual) and tags (outfit, location, activity, mood, framing, time of day, **context**, extra).
+  Context tags are the story moments an item fits ("just got home", "bedtime", "after a workout"). For videos it
+  looks at 4 keyframes.
+- **Hybrid search**: embedding similarity on caption+tags (75%) plus tag/caption word overlap (25%). The model's
+  one-line *scene* is blended into the query (30%) so context tags pull the right moment forward. Items are never
+  repeated within a chat, the library's rating cap is respected, and nothing is sent below `MIN_SCORE`.
+- **Heat ratchet**: photos escalate with the story instead of jumping straight to the most explicit match. A
+  chat's heat is the hottest item already sent in it (or the library's *starting heat*); each send may go one
+  step above that, two when the user asked outright, and never above the model's own `scene_heat`.
 - **Cooldown**: spontaneous sends need N user turns between them. Explicit requests always go through.
 - **Signed, non-expiring URLs**: old chats keep working, but the library can't be enumerated.
 
@@ -52,14 +58,20 @@ The admin UI is at `https://media.<domain>/` (log in with `ADMIN_API_KEY`).
 ## 2. Build a library
 
 1. **New library**: name, character notes (short and visual, with pronouns, for example "Luna, she/her, long
-   silver hair, freckles"), rating cap, cooldown, and the **Open WebUI model IDs** that should use it.
+   silver hair, freckles"), rating cap, **starting heat** (1 for a slow burn, 3 for a character who opens
+   flirty), cooldown, and the **Open WebUI model IDs** that should use it.
 2. **Upload** by drag-and-drop, or use **Import from server folder** (indexes `/media/...` in place, read-only).
 3. The queue creates thumbnails and transcodes, then tags on the GPU. **Pause** the GPU work while you're
    chatting if the tagger and the chat model don't both fit in VRAM.
-4. Fix any caption/tags by hand. Edited items are marked *edited* and skipped by bulk re-tag. Use the
-   ✓/⊘ toggle on a card to exclude an item from sending.
-5. Use **Test search** with the kinds of descriptions the model will send, and tune `MIN_SCORE`
-   (faded rows fall below the threshold).
+4. Fix any caption/tags by hand, including **heat** and the **context** tags, since the vision model can only
+   guess story moments from what is visible. Edited items are marked *edited* and skipped by bulk re-tag. Use
+   the ✓/⊘ toggle on a card to exclude an item from sending. Cards show heat as `h1` … `h5`.
+5. Use **Test search** with the kinds of descriptions the model will send, plus an optional scene and a max
+   heat, and tune `MIN_SCORE` (faded rows fall below the threshold).
+
+> **Upgrading from a library tagged before heat existed**: existing items get heat 3 and no context tags until
+> re-tagged, and the vector index is rebuilt once on the first start (search is empty for a minute while it
+> re-embeds). Run **Re-tag all libraries** from the Tagging prompt page to fill in heat and context.
 
 ## 3. Install the Open WebUI tool
 

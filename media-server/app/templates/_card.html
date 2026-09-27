@@ -6,7 +6,7 @@
   <button class="secondary toggle" hx-post="/media/{{ m.id }}/toggle" hx-target="#card-{{ m.id }}" hx-swap="outerHTML"
           title="{{ 'Disable (never send)' if m.enabled else 'Enable' }}">{{ '✓' if m.enabled else '⊘' }}</button>
   <div class="meta">
-    <span class="pill {{ m.status }}">{{ m.status }}</span>{% if m.rating %} <span class="pill">{{ m.rating }}</span>{% endif %}
+    <span class="pill {{ m.status }}">{{ m.status }}</span>{% if m.rating %} <span class="pill">{{ m.rating }}</span>{% endif %}{% if m.tagged_at or m.tags_locked %} <span class="pill" title="heat: {{ HEAT_LABELS.get(m.heat, '') }}">h{{ m.heat }}</span>{% endif %}
     <div class="cap">{{ m.caption or m.error or '' }}</div>
   </div>
 </div>

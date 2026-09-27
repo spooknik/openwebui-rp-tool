@@ -96,7 +96,7 @@ def queue_stats() -> dict:
 
 def _store_embedding(media_id: int) -> None:
     c = db.conn()
-    m = c.execute("SELECT id, library_id, kind, caption, rating, enabled FROM media WHERE id=?", (media_id,)).fetchone()
+    m = c.execute("SELECT id, library_id, kind, caption, rating, heat, enabled FROM media WHERE id=?", (media_id,)).fetchone()
     if not m:
         return
     vec = ollama.embed([doc_text(m["caption"], db.media_tags(media_id))])[0]
@@ -107,7 +107,7 @@ def _store_embedding(media_id: int) -> None:
         log.info("embedding model changed, re-embedding %d items", len(ids))
         enqueue(ids, "embed")
     with db.tx() as c:
-        db.upsert_vec(c, m["id"], m["library_id"], m["kind"], m["rating"], bool(m["enabled"]), vec)
+        db.upsert_vec(c, m["id"], m["library_id"], m["kind"], m["rating"], bool(m["enabled"]), vec, heat=m["heat"])
         c.execute("UPDATE media SET status='ready', error=NULL WHERE id=?", (media_id,))
 
 
@@ -134,8 +134,8 @@ def _tag(media_id: int) -> None:
         return
     with db.tx() as c:
         c.execute(
-            "UPDATE media SET caption=?, rating=?, error=NULL, tagged_at=datetime('now') WHERE id=?",
-            (result["caption"], result["rating"], media_id),
+            "UPDATE media SET caption=?, rating=?, heat=?, error=NULL, tagged_at=datetime('now') WHERE id=?",
+            (result["caption"], result["rating"], db.clamp_heat(result.get("heat")), media_id),
         )
         db.write_tags(c, media_id, result["caption"], result["tags"])
         # Separate job so an embedding failure never re-runs the (slow) vision tagging.
@@ -185,9 +185,9 @@ def start() -> None:
         t = threading.Thread(target=_run_loop, args=(name, kinds, pausable), name=f"worker-{name}", daemon=True)
         t.start()
         _threads.append(t)
-    # Embedding model changed since last run? Re-embed everything (first job recreates the table).
+    # Embedding model or vector-table layout changed since last run? Re-embed everything (first job recreates the table).
     prev = db.get_setting("embed_model")
-    if prev and prev != get_settings().embed_model:
+    if prev and (prev != get_settings().embed_model or db.get_setting("vec_schema") != db.VEC_SCHEMA):
         ids = [r["id"] for r in db.conn().execute("SELECT id FROM media WHERE status='ready'")]
         enqueue(ids, "embed")
 

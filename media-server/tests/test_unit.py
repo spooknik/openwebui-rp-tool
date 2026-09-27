@@ -14,19 +14,19 @@ def _lib(slug="luna", model_ids=("luna-rp",), rating_cap="explicit", cooldown=No
     return db.conn().execute("SELECT * FROM libraries WHERE id=?", (cur.lastrowid,)).fetchone()
 
 
-def _media(lib, caption, tags, kind="image", rating="sfw", enabled=True):
+def _media(lib, caption, tags, kind="image", rating="sfw", enabled=True, heat=3):
     c = db.conn()
     cur = c.execute(
-        "INSERT INTO media(library_id, kind, source, rel_path, sha256, mime, caption, rating, enabled, status) "
-        "VALUES (?,?,?,?,?,?,?,?,?,'ready')",
-        (lib["id"], kind, "upload", f"x/{caption}", caption, "image/jpeg", caption, rating, int(enabled)),
+        "INSERT INTO media(library_id, kind, source, rel_path, sha256, mime, caption, rating, enabled, status, heat) "
+        "VALUES (?,?,?,?,?,?,?,?,?,'ready',?)",
+        (lib["id"], kind, "upload", f"x/{caption}", caption, "image/jpeg", caption, rating, int(enabled), heat),
     )
     mid = cur.lastrowid
     vec = fake_embed([caption + " " + " ".join(v for vs in tags.values() for v in vs)])[0]
     db.ensure_vec_table(len(vec), "fake-embed")
     with db.tx() as c:
         db.write_tags(c, mid, caption, tags)
-        db.upsert_vec(c, mid, lib["id"], kind, rating, enabled, vec)
+        db.upsert_vec(c, mid, lib["id"], kind, rating, enabled, vec, heat=heat)
     return mid
 
 
